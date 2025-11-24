@@ -59,14 +59,17 @@ class GoldDataPreparator:
     def load_gold_data(self, 
                       symbol: str = 'XAUUSD',
                       end_date: Optional[datetime] = None,
-                      months: Optional[int] = None) -> pd.DataFrame:
+                      months: Optional[int] = None,
+                      use_ticks_fallback: bool = True) -> pd.DataFrame:
         """
-        Загружает минутные данные по золоту
+        Загружает минутные данные по золоту.
+        Если минутных данных недостаточно, создает их из тиков.
         
         Args:
             symbol: Символ (по умолчанию XAUUSD)
             end_date: Конечная дата (если None, используется текущая дата)
             months: Количество месяцев (если None, используется self.training_months)
+            use_ticks_fallback: Использовать тики для создания минутных свечей, если данных недостаточно
         
         Returns:
             DataFrame с минутными данными
@@ -83,7 +86,26 @@ class GoldDataPreparator:
         if not loader.connect():
             raise ConnectionError("Не удалось подключиться к MT5")
         
+        tick_loader = None
         try:
+            # Проверяем доступность символа
+            available_symbols = loader.get_symbols()
+            if available_symbols:
+                # Ищем точное совпадение или похожие символы
+                symbol_found = symbol in available_symbols
+                if not symbol_found:
+                    # Ищем похожие символы
+                    similar = [s for s in available_symbols if 'GOLD' in s.upper() or 'XAU' in s.upper() or symbol.upper() in s.upper()]
+                    if similar:
+                        print(f"⚠️  Символ {symbol} не найден в списке доступных символов")
+                        print(f"   Похожие символы: {', '.join(similar[:10])}")
+                        print(f"   Попробуйте использовать один из этих символов с параметром --symbol")
+                    else:
+                        print(f"⚠️  Символ {symbol} не найден. Всего доступно символов: {len(available_symbols)}")
+                        # Показываем первые 20 символов для справки
+                        print(f"   Примеры доступных символов: {', '.join(available_symbols[:20])}")
+            
+            # Пытаемся загрузить минутные данные из MT5
             df = loader.load_data(
                 symbol=symbol,
                 timeframe='M1',
@@ -91,13 +113,135 @@ class GoldDataPreparator:
                 end_date=end_date
             )
             
-            if df.empty:
-                raise ValueError(f"Не удалось загрузить данные для {symbol}")
+            # Проверяем, достаточно ли данных
+            if not df.empty:
+                actual_start = df.index.min()
+                actual_end = df.index.max()
+                
+                # Если данных недостаточно (меньше 80% от требуемого периода)
+                days_loaded = (actual_end - actual_start).days
+                days_required = (end_date - start_date).days
+                
+                if days_loaded < days_required * 0.8 and use_ticks_fallback:
+                    print(f"   ⚠️  Загружено только {days_loaded} дней из {days_required} требуемых")
+                    print(f"   Доступный период: {actual_start.strftime('%Y-%m-%d %H:%M')} - {actual_end.strftime('%Y-%m-%d %H:%M')}")
+                    print(f"   Требуемый период: {start_date.strftime('%Y-%m-%d %H:%M')} - {end_date.strftime('%Y-%m-%d %H:%M')}")
+                    print(f"   Создаем недостающие минутные свечи из тиков...")
+                    
+                    from data.tick_data_loader import TickDataLoader
+                    # Создаем TickDataLoader с использованием существующего подключения MT5
+                    tick_loader = TickDataLoader(mt5_connection=loader, use_cache=True)
+                    
+                    candles_to_add = []
+                    
+                    # Загружаем тики за период ДО доступных данных
+                    if start_date < actual_start:
+                        missing_start = start_date
+                        missing_end = actual_start - timedelta(minutes=1)
+                        
+                        if missing_start < missing_end:
+                            print(f"   Загрузка тиков за период ДО доступных данных: {missing_start.strftime('%Y-%m-%d %H:%M')} - {missing_end.strftime('%Y-%m-%d %H:%M')}...")
+                            ticks_df = tick_loader.load_ticks(
+                                symbol=symbol,
+                                start_time=missing_start,
+                                end_time=missing_end,
+                                use_cache=True
+                            )
+                            
+                            if not ticks_df.empty:
+                                print(f"   Загружено {len(ticks_df):,} тиков")
+                                candles_from_ticks = loader.create_minute_candles_from_ticks(ticks_df)
+                                if not candles_from_ticks.empty:
+                                    print(f"   Создано {len(candles_from_ticks)} минутных свечей из тиков (период ДО)")
+                                    candles_to_add.append(candles_from_ticks)
+                    
+                    # Загружаем тики за период ПОСЛЕ доступных данных
+                    if actual_end < end_date:
+                        missing_start = actual_end + timedelta(minutes=1)
+                        missing_end = end_date
+                        
+                        if missing_start < missing_end:
+                            print(f"   Загрузка тиков за период ПОСЛЕ доступных данных: {missing_start.strftime('%Y-%m-%d %H:%M')} - {missing_end.strftime('%Y-%m-%d %H:%M')}...")
+                            ticks_df = tick_loader.load_ticks(
+                                symbol=symbol,
+                                start_time=missing_start,
+                                end_time=missing_end,
+                                use_cache=True
+                            )
+                            
+                            if not ticks_df.empty:
+                                print(f"   Загружено {len(ticks_df):,} тиков")
+                                candles_from_ticks = loader.create_minute_candles_from_ticks(ticks_df)
+                                if not candles_from_ticks.empty:
+                                    print(f"   Создано {len(candles_from_ticks)} минутных свечей из тиков (период ПОСЛЕ)")
+                                    candles_to_add.append(candles_from_ticks)
+                    
+                    # Объединяем все данные
+                    if candles_to_add:
+                        # Объединяем: свечи из тиков (до), данные из MT5, свечи из тиков (после)
+                        all_candles = candles_to_add + [df]
+                        df = pd.concat(all_candles).sort_index()
+                        
+                        # Удаляем дубликаты (приоритет данным из MT5 - keep='last' сохраняет последний, т.е. из MT5)
+                        df = df[~df.index.duplicated(keep='last')]
+                        
+                        print(f"   ✓ Итого минутных свечей: {len(df)}")
+                        print(f"   Период: {df.index.min().strftime('%Y-%m-%d %H:%M')} - {df.index.max().strftime('%Y-%m-%d %H:%M')}")
+                    else:
+                        print(f"   ⚠️  Тики за недостающие периоды не найдены. Используем только доступные данные.")
+                
+                if not df.empty:
+                    print(f"   ✓ Загружено {len(df)} минутных свечей за период {df.index.min().strftime('%Y-%m-%d %H:%M')} - {df.index.max().strftime('%Y-%m-%d %H:%M')}")
+                    return df
             
-            print(f"Загружено {len(df)} минутных свечей за период {start_date} - {end_date}")
+            # Если данных нет вообще, пытаемся создать из тиков
+            if df.empty and use_ticks_fallback:
+                print(f"   ⚠️  Минутные данные не найдены. Пытаемся создать из тиков...")
+                
+                from data.tick_data_loader import TickDataLoader
+                # Создаем TickDataLoader с использованием существующего подключения MT5
+                tick_loader = TickDataLoader(mt5_connection=loader, use_cache=True)
+                
+                print(f"   Загрузка тиков за период {start_date.strftime('%Y-%m-%d %H:%M')} - {end_date.strftime('%Y-%m-%d %H:%M')}...")
+                ticks_df = tick_loader.load_ticks(
+                    symbol=symbol,
+                    start_time=start_date,
+                    end_time=end_date,
+                    use_cache=True
+                )
+                
+                if not ticks_df.empty:
+                    print(f"   Загружено {len(ticks_df):,} тиков")
+                    print(f"   Создание минутных свечей из тиков...")
+                    
+                    df = loader.create_minute_candles_from_ticks(ticks_df)
+                    
+                    if not df.empty:
+                        print(f"   ✓ Создано {len(df)} минутных свечей из тиков")
+                        print(f"   Период: {df.index.min().strftime('%Y-%m-%d %H:%M')} - {df.index.max().strftime('%Y-%m-%d %H:%M')}")
+                        return df
+            
+            # Если ничего не получилось
+            if df.empty:
+                error_msg = f"Не удалось загрузить данные для {symbol}"
+                error_msg += f"\n   Период: {start_date.strftime('%Y-%m-%d %H:%M')} - {end_date.strftime('%Y-%m-%d %H:%M')}"
+                error_msg += f"\n   Проверьте:"
+                error_msg += f"\n   1. Символ {symbol} доступен в вашем брокере"
+                error_msg += f"\n   2. MT5 терминал запущен и подключен к серверу"
+                error_msg += f"\n   3. Символ добавлен в Market Watch"
+                error_msg += f"\n   4. Есть исторические данные (минутные или тиковые) за указанный период"
+                if available_symbols and symbol not in available_symbols:
+                    similar = [s for s in available_symbols if 'GOLD' in s.upper() or 'XAU' in s.upper()]
+                    if similar:
+                        error_msg += f"\n   5. Попробуйте использовать: --symbol {similar[0]}"
+                raise ValueError(error_msg)
+            
             return df
         
         finally:
+            # Отключаемся от MT5 только после завершения всех операций
+            # Если tick_loader использовался, он мог создать свое подключение,
+            # но мы все равно отключаем основное подключение loader
             loader.disconnect()
     
     def load_higher_timeframes(self, 

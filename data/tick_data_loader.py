@@ -53,6 +53,13 @@ class TickDataLoader:
     def _ensure_connected(self):
         """Убеждается, что MT5 подключен"""
         if not self.connected:
+            # Если передан существующий объект подключения, проверяем его
+            if self.mt5_connection is not None:
+                # Если это объект MT5DataLoader, проверяем его подключение
+                if hasattr(self.mt5_connection, 'connected') and self.mt5_connection.connected:
+                    self.connected = True
+                    return
+            # Иначе инициализируем новое подключение
             if not mt5.initialize():
                 raise ConnectionError("Не удалось инициализировать MT5")
             self.connected = True

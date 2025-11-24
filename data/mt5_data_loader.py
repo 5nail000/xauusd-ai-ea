@@ -117,6 +117,28 @@ class MT5DataLoader:
             print(f"Неизвестный таймфрейм: {timeframe}")
             return pd.DataFrame()
         
+        # Проверка и активация символа
+        if not mt5.symbol_select(symbol, True):
+            error_info = mt5.last_error()
+            print(f"⚠️  Ошибка: Символ {symbol} не найден или не может быть активирован")
+            if error_info:
+                if isinstance(error_info, tuple):
+                    print(f"   Код ошибки MT5: {error_info[0]}")
+                    print(f"   Описание: {error_info[1]}")
+                else:
+                    print(f"   Код ошибки MT5: {error_info}")
+            
+            # Попробуем найти похожие символы
+            all_symbols = self.get_symbols()
+            if all_symbols:
+                similar = [s for s in all_symbols if 'GOLD' in s.upper() or 'XAU' in s.upper() or 'AU' in s.upper() or symbol.upper() in s.upper()]
+                if similar:
+                    print(f"   Похожие символы: {', '.join(similar[:10])}")
+                else:
+                    print(f"   Всего доступно символов: {len(all_symbols)}")
+                    print(f"   Примеры: {', '.join(all_symbols[:10])}")
+            return pd.DataFrame()
+        
         # Загрузка данных
         if count is not None:
             rates = mt5.copy_rates_from_pos(symbol, mt5_timeframe, 0, count)
@@ -126,7 +148,28 @@ class MT5DataLoader:
             rates = mt5.copy_rates_range(symbol, mt5_timeframe, start_date, end_date)
         
         if rates is None or len(rates) == 0:
-            print(f"Не удалось загрузить данные для {symbol}")
+            error_info = mt5.last_error()
+            print(f"⚠️  Ошибка: Не удалось загрузить данные для {symbol}")
+            print(f"   Период: {start_date.strftime('%Y-%m-%d %H:%M')} - {end_date.strftime('%Y-%m-%d %H:%M')}")
+            print(f"   Таймфрейм: {timeframe}")
+            if error_info:
+                if isinstance(error_info, tuple):
+                    print(f"   Код ошибки MT5: {error_info[0]}")
+                    print(f"   Описание: {error_info[1]}")
+                else:
+                    print(f"   Код ошибки MT5: {error_info}")
+            
+            # Проверяем, есть ли вообще данные для символа
+            test_rates = mt5.copy_rates_from_pos(symbol, mt5_timeframe, 0, 1)
+            if test_rates is None or len(test_rates) == 0:
+                print(f"   ⚠️  Для символа {symbol} нет данных даже на текущий момент")
+                print(f"   Проверьте, что символ доступен в вашем брокере и добавлен в Market Watch")
+            else:
+                print(f"   ℹ️  Данные для символа есть, но не за указанный период")
+                print(f"   Попробуйте:")
+                print(f"     - Уменьшить период (меньше месяцев)")
+                print(f"     - Проверить доступность исторических данных у брокера")
+                print(f"     - Убедиться, что терминал загрузил историю для символа")
             return pd.DataFrame()
         
         # Преобразование в DataFrame
@@ -172,4 +215,58 @@ class MT5DataLoader:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Контекстный менеджер - выход"""
         self.disconnect()
+    
+    @staticmethod
+    def create_minute_candles_from_ticks(ticks_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Создает минутные свечи из тиковых данных.
+        Все цены (OHLC) строятся только по bid, как в MT5.
+        
+        Args:
+            ticks_df: DataFrame с тиками (индекс - время, колонки: bid, ask, volume, spread)
+        
+        Returns:
+            DataFrame с минутными свечами (open, high, low, close, volume, tick_volume)
+            Структура соответствует стандартным OHLC данным MT5
+        """
+        if ticks_df.empty:
+            return pd.DataFrame()
+        
+        # Ресэмплинг по минутам
+        rule = '1T'  # 1 минута
+        
+        # Все цены строятся только по bid, как в MT5
+        open_price = ticks_df['bid'].resample(rule).first()   # Open - первая bid
+        high = ticks_df['bid'].resample(rule).max()           # High - максимальный bid
+        low = ticks_df['bid'].resample(rule).min()            # Low - минимальный bid
+        close = ticks_df['bid'].resample(rule).last()         # Close - последняя bid
+        
+        # Объемы
+        tick_volume = ticks_df['bid'].resample(rule).count()  # Количество тиков
+        volume = ticks_df['volume'].resample(rule).sum() if 'volume' in ticks_df.columns else tick_volume
+        
+        # Спред (для информации, не используется в OHLC)
+        spread = ticks_df['spread'].resample(rule).mean() if 'spread' in ticks_df.columns else pd.Series(dtype=float)
+        
+        # Создание DataFrame
+        candles = pd.DataFrame({
+            'open': open_price,
+            'high': high,
+            'low': low,
+            'close': close,
+            'tick_volume': tick_volume,
+            'volume': volume,
+            'spread': spread
+        })
+        
+        # Переименование для совместимости с MT5 форматом
+        candles.rename(columns={
+            'tick_volume': 'volume',
+            'volume': 'real_volume'
+        }, inplace=True)
+        
+        # Удаление строк с NaN (минуты без тиков)
+        candles = candles.dropna(subset=['open', 'high', 'low', 'close'])
+        
+        return candles
 

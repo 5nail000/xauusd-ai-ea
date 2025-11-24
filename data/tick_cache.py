@@ -104,34 +104,30 @@ class TickCache:
         if ticks_df.empty:
             return
         
-        # Группируем по дням
-        ticks_df = ticks_df.copy()
-        ticks_df['date'] = ticks_df.index.date
-        grouped = list(ticks_df.groupby('date'))
+        # Получаем min/max даты БЕЗ копирования DataFrame
+        min_date = ticks_df.index.min()
+        max_date = ticks_df.index.max()
         
-        # Сохраняем батчами для оптимизации
-        for i in range(0, len(grouped), batch_size):
-            batch = grouped[i:i+batch_size]
+        # Группируем по дням БЕЗ полного копирования DataFrame
+        # Используем groupby напрямую, обрабатывая группы по одной
+        grouped = ticks_df.groupby(ticks_df.index.date)
+        
+        # Сохраняем по дням, обрабатывая батчами
+        dates_list = []
+        for date, group_df in grouped:
+            dates_list.append(date)
+            date_dt = datetime.combine(date, datetime.min.time())
+            file_path = self._get_tick_file_path(symbol, date_dt)
             
-            for date, group_df in batch:
-                date_dt = datetime.combine(date, datetime.min.time())
-                file_path = self._get_tick_file_path(symbol, date_dt)
-                
-                # Удаляем временную колонку
-                group_df = group_df.drop('date', axis=1)
-                
-                # Сохраняем
-                try:
-                    group_df.to_pickle(file_path)
-                except Exception as e:
-                    print(f"    Ошибка при сохранении {file_path}: {e}")
+            # Сохраняем группу (это уже копия из groupby, не нужно копировать еще раз)
+            try:
+                group_df.to_pickle(file_path)
+            except Exception as e:
+                print(f"    Ошибка при сохранении {file_path}: {e}")
         
         # Обновляем метаданные один раз в конце
         if symbol not in self.metadata:
             self.metadata[symbol] = {}
-        
-        min_date = ticks_df.index.min()
-        max_date = ticks_df.index.max()
         
         if 'min_date' not in self.metadata[symbol] or min_date < self.metadata[symbol]['min_date']:
             self.metadata[symbol]['min_date'] = min_date

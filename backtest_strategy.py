@@ -4,6 +4,7 @@
 import pandas as pd
 from trading.backtester import Backtester
 from config.trading_config import TradingConfig
+from config.monitoring_config import MonitoringConfig
 
 def main():
     """
@@ -51,18 +52,26 @@ def main():
     test_df = pd.read_csv('data/gold_test.csv', index_col=0, parse_dates=True)
     print(f"   Загружено {len(test_df)} свечей")
     
+    # Конфигурация мониторинга (можно настроить под свои нужды)
+    monitoring_config = MonitoringConfig(
+        window_size=50,  # Размер окна для скользящих метрик
+        # Пороги можно настроить в config/monitoring_config.py
+    )
+    
     # Создание бэктестера
     print("\n2. Инициализация бэктестера...")
     backtester = Backtester(
         model_path=model_path,
         scaler_path=scaler_path,
         model_type=model_type,
-        trading_config=trading_config
+        trading_config=trading_config,
+        monitoring_config=monitoring_config,
+        enable_monitoring=True  # Включить мониторинг производительности
     )
     
     # Запуск бэктестинга
     print("\n3. Запуск бэктестинга...")
-    results = backtester.backtest(test_df, start_idx=60)
+    results = backtester.backtest(test_df, start_idx=60, save_plots=True)
     
     # Сохранение результатов
     print("\n4. Сохранение результатов...")
@@ -80,9 +89,18 @@ def main():
         positions_df.to_csv('trading/closed_positions.csv', index=False)
         print("   Закрытые позиции сохранены: trading/closed_positions.csv")
     
+    # Выводим информацию о мониторинге
+    if 'performance_monitoring' in results:
+        monitor = results['performance_monitoring']
+        print(f"\n📊 Мониторинг: Статус = {monitor.get('status', 'NORMAL')}")
+        if monitor.get('drift_score') is not None:
+            print(f"   Дрифт модели: {monitor['drift_score']:.1%}")
+    
     print("\n" + "=" * 60)
     print("Бэктестинг завершен!")
     print("=" * 60)
+    print("\n💡 Графики мониторинга сохранены в: trading/monitoring_plots/")
+    print("📖 Подробнее: docs/12_PERFORMANCE_MONITORING.md")
 
 if __name__ == '__main__':
     main()

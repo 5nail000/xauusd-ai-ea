@@ -19,6 +19,8 @@
 8. **[08_TICK_FEATURES.md](08_TICK_FEATURES.md)** - работа с тиковыми данными и фичами
 9. **[09_TICK_CACHE_GUIDE.md](09_TICK_CACHE_GUIDE.md)** - система кэширования тиков
 10. **[10_TRADING_MODEL_PLAN.md](10_TRADING_MODEL_PLAN.md)** - план проекта и статус выполнения
+11. **[11_FEATURE_OPTIMIZATION.md](11_FEATURE_OPTIMIZATION.md)** - оптимизация фичей
+12. **[12_PERFORMANCE_MONITORING.md](12_PERFORMANCE_MONITORING.md)** - мониторинг производительности и защита от деградации
 
 ## Быстрая навигация
 
@@ -37,6 +39,7 @@
 - **Кэширование**: [09_TICK_CACHE_GUIDE.md](09_TICK_CACHE_GUIDE.md)
 - **План проекта**: [10_TRADING_MODEL_PLAN.md](10_TRADING_MODEL_PLAN.md)
 - **Оптимизация фичей**: [11_FEATURE_OPTIMIZATION.md](11_FEATURE_OPTIMIZATION.md)
+- **Мониторинг производительности**: [12_PERFORMANCE_MONITORING.md](12_PERFORMANCE_MONITORING.md)
 
 ## Структура документации
 
@@ -52,7 +55,9 @@ docs/
 ├── 07_MODEL_ARCHITECTURE.md # Архитектуры
 ├── 08_TICK_FEATURES.md      # Тиковые фичи
 ├── 09_TICK_CACHE_GUIDE.md   # Кэширование
-└── 10_TRADING_MODEL_PLAN.md # План проекта
+├── 10_TRADING_MODEL_PLAN.md # План проекта
+├── 11_FEATURE_OPTIMIZATION.md # Оптимизация фичей
+└── 12_PERFORMANCE_MONITORING.md # Мониторинг производительности
 ```
 
 ## Типичный workflow

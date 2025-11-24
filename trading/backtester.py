@@ -9,8 +9,12 @@ from datetime import datetime
 from models.model_factory import create_model, get_model_config
 from models.data_loader import SequenceGenerator
 from trading.position_manager import PositionManager
+from trading.performance_monitor import PerformanceMonitor
+from trading.model_drift_detector import ModelDriftDetector
+from trading.monitoring_visualizer import MonitoringVisualizer
 from config.trading_config import TradingConfig
 from config.model_config import TransformerConfig
+from config.monitoring_config import MonitoringConfig
 import warnings
 
 class Backtester:
@@ -22,18 +26,24 @@ class Backtester:
                  model_path: str,
                  scaler_path: str,
                  model_type: str = 'encoder',
-                 trading_config: Optional[TradingConfig] = None):
+                 trading_config: Optional[TradingConfig] = None,
+                 monitoring_config: Optional[MonitoringConfig] = None,
+                 enable_monitoring: bool = True):
         """
         Args:
             model_path: Путь к обученной модели
             scaler_path: Путь к scaler
             model_type: Тип модели ('encoder' или 'timeseries')
             trading_config: Конфигурация торговли
+            monitoring_config: Конфигурация мониторинга
+            enable_monitoring: Включить ли мониторинг производительности
         """
         self.model_path = model_path
         self.scaler_path = scaler_path
         self.model_type = model_type
         self.trading_config = trading_config if trading_config else TradingConfig()
+        self.monitoring_config = monitoring_config if monitoring_config else MonitoringConfig()
+        self.enable_monitoring = enable_monitoring
         
         # Инициализируем генератор последовательностей
         self.sequence_generator = SequenceGenerator(sequence_length=60)
@@ -56,6 +66,11 @@ class Backtester:
         
         # Менеджер позиций
         self.position_manager = PositionManager(self.trading_config)
+        
+        # Система мониторинга (будет инициализирована после бэктеста)
+        self.performance_monitor: Optional[PerformanceMonitor] = None
+        self.drift_detector: Optional[ModelDriftDetector] = None
+        self.visualizer = MonitoringVisualizer() if enable_monitoring else None
     
     def _load_model(self) -> torch.nn.Module:
         """Загружает обученную модель"""
@@ -302,42 +317,125 @@ class Backtester:
         print(f"Период: {df.index[start_idx]} - {df.index[-1]}")
         print(f"Количество свечей: {len(df) - start_idx}")
         print(f"Начальный баланс: ${self.position_manager.balance:.2f}")
+        print(f"Мониторинг производительности: {'Включен' if self.enable_monitoring else 'Выключен'}")
         print("-" * 60)
         
         equity_history = []
+        trading_stopped = False
+        
+        # Инициализируем мониторинг производительности (будет заполнен после первого бэктеста)
+        # Для реальной торговли нужно передать статистику из предыдущего бэктеста
+        if self.enable_monitoring:
+            # Временная статистика для инициализации (будет обновлена после бэктеста)
+            initial_stats = {
+                'win_rate': 0,
+                'profit_factor': 1.0,
+                'avg_profit': 0,
+                'avg_confidence': 0.7
+            }
+            self.performance_monitor = PerformanceMonitor(
+                backtest_stats=initial_stats,
+                config=self.monitoring_config
+            )
         
         for i in range(start_idx, len(df)):
             current_time = df.index[i]
             current_price = df['close'].iloc[i]
+            
+            # Проверяем, не остановлена ли торговля
+            if trading_stopped:
+                # Обновляем только equity, но не торгуем
+                equity = self.position_manager.balance
+                for pos in self.position_manager.positions:
+                    unrealized_profit = pos.calculate_profit(current_price)
+                    equity += unrealized_profit
+                equity_history.append({
+                    'time': current_time,
+                    'equity': equity,
+                    'balance': self.position_manager.balance
+                })
+                continue
             
             # Обновляем открытые позиции и логируем закрытия
             closed_before = len(self.position_manager.closed_positions)
             self.position_manager.update_positions(current_time, current_price)
             closed_after = len(self.position_manager.closed_positions)
             
-            # Логируем закрытые позиции
-            if closed_after > closed_before:
+            # Обновляем мониторинг при закрытии позиций
+            if closed_after > closed_before and self.enable_monitoring and self.performance_monitor:
                 for pos in self.position_manager.closed_positions[closed_before:]:
                     profit_sign = "+" if pos['profit'] >= 0 else ""
                     print(f"{pos['exit_time']}: Закрыта позиция {('BUY' if pos['direction'] == 1 else 'SELL')} "
                           f"по цене {pos['exit_price']:.2f}, прибыль {profit_sign}${pos['profit']:.2f}, "
                           f"причина: {pos['exit_reason']} "
                           f"(вход: {pos['entry_price']:.2f}, длительность: {pos['exit_time'] - pos['entry_time']})")
+                    
+                    # Добавляем в мониторинг
+                    self.performance_monitor.add_trade(
+                        profit=pos['profit'],
+                        confidence=pos.get('signal_confidence', 0),
+                        timestamp=pos['exit_time'],
+                        direction=pos['direction'],
+                        entry_price=pos['entry_price'],
+                        exit_price=pos['exit_price'],
+                        exit_reason=pos['exit_reason']
+                    )
+                    
+                    # Проверяем статус мониторинга
+                    if self.performance_monitor.should_stop_trading():
+                        print(f"\n⚠️ КРИТИЧЕСКАЯ СИТУАЦИЯ: Торговля остановлена!")
+                        status_report = self.performance_monitor.get_status_report()
+                        print(f"   Статус: {status_report['status']}")
+                        print(f"   Причина: {status_report['recent_alerts'][-1]['message'] if status_report['recent_alerts'] else 'Неизвестно'}")
+                        trading_stopped = True
+                        continue
             
             # Получаем сигнал
             signal = self.get_signal(df, i)
+            
+            # Обновляем детектор дрифта
+            if self.enable_monitoring and self.drift_detector and signal is not None:
+                try:
+                    # Создаем последовательность для анализа дрифта
+                    df_subset = df.iloc[:i+1].copy()
+                    sequences, _ = self.sequence_generator.create_sequences(df_subset)
+                    if len(sequences) > 0:
+                        self.drift_detector.add_sequence(
+                            sequences[-1],
+                            feature_names=self.sequence_generator.feature_columns
+                        )
+                        # Обновляем оценку дрифта в мониторинге
+                        drift_report = self.drift_detector.get_drift_report()
+                        self.performance_monitor.update_drift_score(drift_report['drift_score'])
+                except Exception as e:
+                    # Игнорируем ошибки при анализе дрифта
+                    pass
             
             # Открываем новую позицию если есть сигнал
             if signal is not None:
                 direction, confidence = signal
                 
                 if self.position_manager.can_open_position(direction):
+                    # Применяем множитель размера позиции из мониторинга
+                    position_size_multiplier = 1.0
+                    if self.enable_monitoring and self.performance_monitor:
+                        position_size_multiplier = self.performance_monitor.get_position_size_multiplier()
+                        if position_size_multiplier < 1.0:
+                            print(f"⚠️ Размер позиции снижен на {(1-position_size_multiplier)*100:.0f}% (статус: {self.performance_monitor.status})")
+                    
+                    # Временно изменяем базовый размер лота
+                    original_lot_size = self.trading_config.base_lot_size
+                    self.trading_config.base_lot_size = original_lot_size * position_size_multiplier
+                    
                     position = self.position_manager.open_position(
                         entry_time=current_time,
                         entry_price=current_price,
                         direction=direction,
                         signal_confidence=confidence
                     )
+                    
+                    # Восстанавливаем оригинальный размер лота
+                    self.trading_config.base_lot_size = original_lot_size
                     
                     if position:
                         print(f"{current_time}: Открыта позиция {('BUY' if direction == 1 else 'SELL')} "
@@ -356,6 +454,15 @@ class Backtester:
                 'equity': equity,
                 'balance': self.position_manager.balance
             })
+            
+            # Обновляем equity в мониторинге
+            if self.enable_monitoring and self.performance_monitor:
+                self.performance_monitor.add_equity(equity, current_time)
+                
+                # Обновляем частоту аномалий
+                if self.anomaly_stats['total_checks'] > 0:
+                    anomaly_rate = self.anomaly_stats['anomalies_detected'] / self.anomaly_stats['total_checks']
+                    self.performance_monitor.update_anomaly_rate(anomaly_rate)
         
         # Закрываем все открытые позиции в конце
         final_price = df['close'].iloc[-1]
@@ -370,6 +477,26 @@ class Backtester:
         # Получаем статистику
         stats = self.position_manager.get_statistics()
         
+        # Обновляем статистику мониторинга на основе финальных результатов
+        if self.enable_monitoring and self.performance_monitor:
+            # Обновляем ожидаемые значения из фактических результатов бэктеста
+            final_stats = {
+                'win_rate': stats.get('win_rate', 0),
+                'profit_factor': stats.get('profit_factor', 1.0),
+                'avg_profit': stats.get('avg_profit', 0),
+                'avg_confidence': np.mean([t.confidence for t in self.performance_monitor.trade_history]) if self.performance_monitor.trade_history else 0.7
+            }
+            self.performance_monitor.backtest_stats = final_stats
+            
+            # Получаем отчет о мониторинге
+            monitor_report = self.performance_monitor.get_status_report()
+            stats['performance_monitoring'] = monitor_report
+            
+            # Добавляем отчет о дрифте
+            if self.drift_detector:
+                drift_report = self.drift_detector.get_drift_report()
+                stats['drift_detection'] = drift_report
+        
         # Добавляем историю equity
         stats['equity_history'] = pd.DataFrame(equity_history)
         
@@ -377,6 +504,26 @@ class Backtester:
         print("Результаты бэктестинга")
         print("=" * 60)
         self._print_statistics(stats)
+        
+        # Выводим отчет о мониторинге
+        if self.enable_monitoring and self.performance_monitor:
+            self._print_monitoring_report(stats.get('performance_monitoring', {}))
+        
+        # Создаем визуализации
+        if self.enable_monitoring and self.visualizer and save_plots:
+            try:
+                monitor_data = self.performance_monitor.get_metrics_history()
+                self.visualizer.plot_performance_dashboard(
+                    monitor_data=monitor_data,
+                    backtest_stats=stats
+                )
+                
+                if self.drift_detector:
+                    drift_scores = self.drift_detector.drift_scores
+                    if drift_scores:
+                        self.visualizer.plot_drift_analysis(drift_scores)
+            except Exception as e:
+                print(f"⚠️ Ошибка при создании графиков: {e}")
         
         return stats
     
@@ -430,6 +577,61 @@ class Backtester:
             print(f"  Обнаружено аномалий: {self.anomaly_stats['anomalies_detected']} ({anomaly_pct:.1f}%)")
             print(f"  Сигналов пропущено: {self.anomaly_stats['signals_skipped']}")
             print(f"  Уверенность снижена: {self.anomaly_stats['confidence_reduced']} раз")
+        
+        print(f"\n{'='*60}")
+    
+    def _print_monitoring_report(self, monitor_report: Dict):
+        """Выводит отчет о мониторинге производительности"""
+        if not monitor_report:
+            return
+        
+        print(f"\n{'='*60}")
+        print(f"{'МОНИТОРИНГ ПРОИЗВОДИТЕЛЬНОСТИ':^60}")
+        print(f"{'='*60}")
+        
+        status = monitor_report.get('status', 'NORMAL')
+        status_colors = {
+            'NORMAL': '🟢',
+            'WARNING': '🟡',
+            'CRITICAL': '🔴',
+            'STOPPED': '⛔'
+        }
+        status_emoji = status_colors.get(status, '⚪')
+        
+        print(f"\n📊 Статус системы: {status_emoji} {status}")
+        print(f"   Множитель размера позиций: {monitor_report.get('position_size_multiplier', 1.0):.0%}")
+        
+        print(f"\n📈 Текущие метрики:")
+        current_wr = monitor_report.get('current_win_rate')
+        expected_wr = monitor_report.get('expected_win_rate')
+        if current_wr is not None and expected_wr is not None:
+            wr_diff = (current_wr - expected_wr) / expected_wr * 100 if expected_wr > 0 else 0
+            wr_sign = "+" if wr_diff >= 0 else ""
+            print(f"   Win Rate: {current_wr:.1%} (ожидалось: {expected_wr:.1%}, {wr_sign}{wr_diff:.1f}%)")
+        
+        current_pf = monitor_report.get('current_profit_factor')
+        expected_pf = monitor_report.get('expected_profit_factor')
+        if current_pf is not None and expected_pf is not None:
+            pf_diff = (current_pf - expected_pf) / expected_pf * 100 if expected_pf > 0 else 0
+            pf_sign = "+" if pf_diff >= 0 else ""
+            print(f"   Profit Factor: {current_pf:.2f} (ожидалось: {expected_pf:.2f}, {pf_sign}{pf_diff:.1f}%)")
+        
+        print(f"\n⚠️  Алерты:")
+        consecutive_losses = monitor_report.get('consecutive_losses', 0)
+        max_drawdown = monitor_report.get('max_drawdown', 0)
+        print(f"   Серия убытков: {consecutive_losses} подряд")
+        print(f"   Максимальная просадка: {max_drawdown:.1%}")
+        
+        drift_score = monitor_report.get('drift_score')
+        if drift_score is not None:
+            print(f"   Дрифт модели: {drift_score:.1%}")
+        
+        recent_alerts = monitor_report.get('recent_alerts', [])
+        if recent_alerts:
+            print(f"\n   Последние алерты:")
+            for alert in recent_alerts[-3:]:  # Последние 3
+                level_emoji = {'WARNING': '🟡', 'CRITICAL': '🔴', 'STOPPED': '⛔'}.get(alert['level'], '⚪')
+                print(f"   {level_emoji} {alert['level']}: {alert['message']}")
         
         print(f"\n{'='*60}")
 

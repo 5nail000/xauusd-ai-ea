@@ -1,0 +1,124 @@
+# Индекс документации
+
+Добро пожаловать в документацию проекта FX AI EA!
+
+## Порядок изучения (рекомендуемый)
+
+### Для начинающих
+
+1. **[01_README.md](01_README.md)** - начните здесь! Общее описание проекта, быстрый старт
+2. **[02_INSTALL.md](02_INSTALL.md)** - установка и настройка окружения
+3. **[03_DATA_PREPARATION.md](03_DATA_PREPARATION.md)** - подготовка данных для обучения
+4. **[04_TRAINING_GUIDE.md](04_TRAINING_GUIDE.md)** - обучение моделей
+5. **[05_MONITORING_GUIDE.md](05_MONITORING_GUIDE.md)** - мониторинг процесса обучения
+6. **[06_BACKTESTING_GUIDE.md](06_BACKTESTING_GUIDE.md)** - бэктестинг торговой стратегии
+
+### Справочная информация
+
+7. **[07_MODEL_ARCHITECTURE.md](07_MODEL_ARCHITECTURE.md)** - архитектуры Transformer моделей
+8. **[08_TICK_FEATURES.md](08_TICK_FEATURES.md)** - работа с тиковыми данными и фичами
+9. **[09_TICK_CACHE_GUIDE.md](09_TICK_CACHE_GUIDE.md)** - система кэширования тиков
+10. **[10_TRADING_MODEL_PLAN.md](10_TRADING_MODEL_PLAN.md)** - план проекта и статус выполнения
+
+## Быстрая навигация
+
+### По задачам
+
+- **Установка**: [02_INSTALL.md](02_INSTALL.md)
+- **Подготовка данных**: [03_DATA_PREPARATION.md](03_DATA_PREPARATION.md)
+- **Обучение**: [04_TRAINING_GUIDE.md](04_TRAINING_GUIDE.md)
+- **Мониторинг**: [05_MONITORING_GUIDE.md](05_MONITORING_GUIDE.md)
+- **Бэктестинг**: [06_BACKTESTING_GUIDE.md](06_BACKTESTING_GUIDE.md)
+
+### По темам
+
+- **Архитектуры моделей**: [07_MODEL_ARCHITECTURE.md](07_MODEL_ARCHITECTURE.md)
+- **Тиковые данные**: [08_TICK_FEATURES.md](08_TICK_FEATURES.md)
+- **Кэширование**: [09_TICK_CACHE_GUIDE.md](09_TICK_CACHE_GUIDE.md)
+- **План проекта**: [10_TRADING_MODEL_PLAN.md](10_TRADING_MODEL_PLAN.md)
+- **Оптимизация фичей**: [11_FEATURE_OPTIMIZATION.md](11_FEATURE_OPTIMIZATION.md)
+
+## Структура документации
+
+```
+docs/
+├── 00_INDEX.md              # Этот файл - индекс документации
+├── 01_README.md             # Главный файл проекта
+├── 02_INSTALL.md            # Установка
+├── 03_DATA_PREPARATION.md   # Подготовка данных
+├── 04_TRAINING_GUIDE.md     # Обучение моделей
+├── 05_MONITORING_GUIDE.md   # Мониторинг обучения
+├── 06_BACKTESTING_GUIDE.md  # Бэктестинг
+├── 07_MODEL_ARCHITECTURE.md # Архитектуры
+├── 08_TICK_FEATURES.md      # Тиковые фичи
+├── 09_TICK_CACHE_GUIDE.md   # Кэширование
+└── 10_TRADING_MODEL_PLAN.md # План проекта
+```
+
+## Типичный workflow
+
+### Вариант 1: Полный цикл (рекомендуется)
+
+```bash
+# Единый скрипт для всего процесса
+python full_pipeline.py --months 12
+```
+
+### Вариант 2: По отдельности
+
+1. **Установка** → [02_INSTALL.md](02_INSTALL.md)
+2. **Подготовка данных** → [03_DATA_PREPARATION.md](03_DATA_PREPARATION.md)
+   ```bash
+   python prepare_gold_data.py --months 12
+   ```
+3. **Обучение моделей** → [04_TRAINING_GUIDE.md](04_TRAINING_GUIDE.md)
+   ```bash
+   python train_all_models.py
+   ```
+   - Автоматически создается документация по фичам
+4. **Мониторинг** → [05_MONITORING_GUIDE.md](05_MONITORING_GUIDE.md)
+   - Проверка графиков обучения
+   - Анализ переобученности
+5. **Бэктестинг** → [06_BACKTESTING_GUIDE.md](06_BACKTESTING_GUIDE.md)
+   ```bash
+   python backtest_strategy.py
+   ```
+   - Автоматическая валидация фичей
+
+## Полезные ссылки
+
+- [Главная страница проекта](../README.md)
+- [Код проекта](../)
+- [Issues](https://github.com/your-repo/issues) (если используется Git)
+
+## Обновления документации
+
+Документация обновляется вместе с кодом. Если вы нашли неточность или хотите добавить информацию, пожалуйста, создайте issue или pull request.
+
+---
+
+## Последние улучшения (24.11.2025)
+
+### ✨ Новые функции:
+
+1. **Единый pipeline** (`full_pipeline.py`)
+   - Полный цикл: подготовка → обучение → бэктестинг одной командой
+   - Умные проверки наличия данных/моделей
+   - Гибкие параметры через командную строку
+
+2. **Синхронизация фичей**
+   - Автоматическое сохранение метаданных о фичах в scaler
+   - Валидация соответствия фичей при загрузке модели
+   - Утилиты для проверки и сравнения фичей
+
+3. **Экспорт документации по фичам**
+   - Автоматическое создание документации после обучения
+   - Два формата: JSON и Markdown
+   - Полная информация о каждом фиче (описание, формула, источник, статистика)
+
+4. **Мониторинг аномалий**
+   - Отслеживание входных значений, выходящих за 3σ от обучающей выборки
+   - Автоматическое снижение уверенности или пропуск сигналов при аномалиях
+
+**Последнее обновление**: 24.11.2025
+

@@ -3,6 +3,8 @@
 """
 import pandas as pd
 import numpy as np
+import os
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 from data.mt5_data_loader import MT5DataLoader
@@ -11,6 +13,10 @@ from features.feature_engineering import FeatureEngineer
 from data.target_generator import TargetGenerator
 from config.feature_config import FeatureConfig
 
+def _get_timestamp() -> str:
+    """Возвращает форматированную временную метку"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 class GoldDataPreparator:
     """
     Класс для подготовки данных по золоту для обучения модели
@@ -18,20 +24,37 @@ class GoldDataPreparator:
     
     def __init__(self, 
                  config: Optional[FeatureConfig] = None,
-                 training_months: int = 6):
+                 training_months: int = 6,
+                 cache_dir: str = 'data/prepared'):
         """
         Args:
             config: Конфигурация фичей
             training_months: Количество месяцев данных для обучения (по умолчанию 6)
+            cache_dir: Директория для сохранения подготовленных данных
         """
         self.config = config if config is not None else FeatureConfig()
         self.training_months = training_months
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.feature_engineer = FeatureEngineer(self.config)
         self.target_generator = TargetGenerator(
             breakout_threshold=50.0,
             bounce_threshold=30.0,
             lookahead_periods=60
         )
+    
+    def _get_cache_file_path(self, symbol: str, months: int, end_date: Optional[datetime] = None,
+                             load_ticks: bool = True, load_higher_tf: bool = True) -> Path:
+        """Генерирует путь к файлу кэша на основе параметров"""
+        if end_date is None:
+            end_date = datetime.now()
+        
+        # Создаем уникальное имя файла на основе параметров
+        date_str = end_date.strftime('%Y%m%d')
+        ticks_flag = 'ticks' if load_ticks else 'noticks'
+        tf_flag = 'mtf' if load_higher_tf else 'notf'
+        filename = f'{symbol}_{months}m_{date_str}_{ticks_flag}_{tf_flag}.pkl'
+        return self.cache_dir / filename
     
     def load_gold_data(self, 
                       symbol: str = 'XAUUSD',
@@ -115,7 +138,7 @@ class GoldDataPreparator:
                 )
                 if not df_tf.empty:
                     higher_timeframes[tf] = df_tf
-                    print(f"Загружено {len(df_tf)} свечей для таймфрейма {tf}")
+                    print(f"[{_get_timestamp()}] Загружено {len(df_tf)} свечей для таймфрейма {tf}")
             
             return higher_timeframes
         
@@ -145,7 +168,7 @@ class GoldDataPreparator:
             lookback_minutes=lookback_minutes
         )
         
-        print(f"Загружено тиковых данных для {len(ticks_data)} минутных свечей")
+        print(f"[{_get_timestamp()}] Загружено тиковых данных для {len(ticks_data)} минутных свечей")
         return ticks_data
     
     def prepare_full_dataset(self, 
@@ -153,7 +176,10 @@ class GoldDataPreparator:
                             end_date: Optional[datetime] = None,
                             months: Optional[int] = None,
                             load_ticks: bool = True,
-                            load_higher_tf: bool = True) -> pd.DataFrame:
+                            load_higher_tf: bool = True,
+                            use_cache: bool = True,
+                            force_regenerate: bool = False,
+                            ask_on_existing: bool = True) -> pd.DataFrame:
         """
         Подготавливает полный датасет для обучения
         
@@ -163,28 +189,68 @@ class GoldDataPreparator:
             months: Количество месяцев
             load_ticks: Загружать ли тиковые данные
             load_higher_tf: Загружать ли старшие таймфреймы
+            use_cache: Использовать сохраненный кэш, если он есть
+            force_regenerate: Принудительно регенерировать данные (игнорировать кэш)
+            ask_on_existing: Спрашивать пользователя, если файл существует
         
         Returns:
             DataFrame со всеми фичами и целевыми переменными
         """
-        print("=" * 60)
-        print("Подготовка данных для обучения модели")
-        print("=" * 60)
+        if months is None:
+            months = self.config.training_data_months
+        
+        # Проверяем наличие сохраненного файла
+        cache_file = self._get_cache_file_path(symbol, months, end_date, load_ticks, load_higher_tf)
+        
+        if use_cache and not force_regenerate and cache_file.exists():
+            if ask_on_existing:
+                print(f"\n[{_get_timestamp()}] Найден сохраненный файл: {cache_file}")
+                print(f"[{_get_timestamp()}] Размер файла: {cache_file.stat().st_size / 1024 / 1024:.1f} MB")
+                print(f"[{_get_timestamp()}] Дата создания: {datetime.fromtimestamp(cache_file.stat().st_mtime)}")
+                
+                response = input(f"[{_get_timestamp()}] Загрузить сохраненные данные? (y/n): ").strip().lower()
+                if response in ['y', 'yes', 'да', 'д', '']:
+                    print(f"[{_get_timestamp()}] Загрузка сохраненных данных...")
+                    try:
+                        df = pd.read_pickle(cache_file)
+                        print(f"[{_get_timestamp()}] ✓ Загружено {len(df)} образцов из кэша")
+                        print(f"[{_get_timestamp()}] Количество фичей: {len([c for c in df.columns if not c.startswith('future_return') and c != 'signal_class' and c != 'signal_class_name' and c != 'max_future_return'])}")
+                        return df
+                    except Exception as e:
+                        print(f"[{_get_timestamp()}] ⚠ Ошибка при загрузке кэша: {e}")
+                        print(f"[{_get_timestamp()}] Продолжаем с генерацией...")
+                else:
+                    print(f"[{_get_timestamp()}] Продолжаем с генерацией...")
+            else:
+                # Автоматически загружаем, если не спрашиваем
+                print(f"[{_get_timestamp()}] Загрузка сохраненных данных из {cache_file}...")
+                try:
+                    df = pd.read_pickle(cache_file)
+                    print(f"[{_get_timestamp()}] ✓ Загружено {len(df)} образцов из кэша")
+                    return df
+                except Exception as e:
+                    print(f"[{_get_timestamp()}] ⚠ Ошибка при загрузке кэша: {e}")
+                    print(f"[{_get_timestamp()}] Продолжаем с генерацией...")
+        
+        timestamp = _get_timestamp()
+        print(f"[{timestamp}] " + "=" * 60)
+        print(f"[{timestamp}] Подготовка данных для обучения модели")
+        print(f"[{timestamp}] " + "=" * 60)
         
         # 1. Загрузка минутных данных
-        print("\n1. Загрузка минутных данных...")
+        print(f"\n[{_get_timestamp()}] 1. Загрузка минутных данных...")
         df_minute = self.load_gold_data(symbol, end_date, months)
         
         # 2. Загрузка старших таймфреймов
         higher_timeframes = None
         if load_higher_tf:
-            print("\n2. Загрузка старших таймфреймов...")
+            print(f"\n[{_get_timestamp()}] 2. Загрузка старших таймфреймов...")
             higher_timeframes = self.load_higher_timeframes(symbol, end_date, months)
         
         # 3. Загрузка тиковых данных
         ticks_data = None
         if load_ticks:
-            print("\n3. Загрузка тиковых данных...")
+            print(f"\n[{_get_timestamp()}] 3. Загрузка тиковых данных...")
             try:
                 ticks_data = self.load_tick_data(
                     minute_times=df_minute.index,
@@ -192,37 +258,42 @@ class GoldDataPreparator:
                     lookback_minutes=self.config.tick_lookback_minutes
                 )
                 if len(ticks_data) == 0:
-                    print("  Предупреждение: тиковые данные не загружены. Продолжаем без них.")
+                    print(f"[{_get_timestamp()}]   Предупреждение: тиковые данные не загружены. Продолжаем без них.")
             except Exception as e:
-                print(f"  Предупреждение: ошибка при загрузке тиков: {e}")
-                print("  Продолжаем без тиковых данных.")
+                print(f"[{_get_timestamp()}]   Предупреждение: ошибка при загрузке тиков: {e}")
+                print(f"[{_get_timestamp()}]   Продолжаем без тиковых данных.")
                 ticks_data = None
         
         # 4. Генерация фичей
-        print("\n4. Генерация фичей...")
+        print(f"\n[{_get_timestamp()}] 4. Генерация фичей...")
         df_features = self.feature_engineer.create_features(
             df_minute,
             higher_timeframes_data=higher_timeframes,
             ticks_data=ticks_data,
-            add_targets=False  # Целевые переменные добавим отдельно
+            add_targets=False,  # Целевые переменные добавим отдельно
+            symbol=symbol,
+            save_intermediate=True,  # Сохранять промежуточные результаты
+            resume=True  # Продолжить с сохраненного прогресса
         )
         
         # 5. Генерация целевых переменных
-        print("\n5. Генерация целевых переменных...")
+        print(f"\n[{_get_timestamp()}] 5. Генерация целевых переменных...")
         df_with_targets = self.target_generator.generate_targets(
             df_features,
             price_column='close'
         )
         
         # 6. Анализ распределения классов
-        print("\n6. Анализ распределения классов:")
+        timestamp = _get_timestamp()
+        print(f"\n[{timestamp}] 6. Анализ распределения классов:")
         class_dist = self.target_generator.get_class_distribution(df_with_targets)
-        print(class_dist)
-        print(f"\nПроцентное распределение:")
-        print((class_dist / len(df_with_targets) * 100).round(2))
+        print(f"[{timestamp}] {class_dist}")
+        print(f"[{timestamp}] Процентное распределение:")
+        print(f"[{timestamp}] {(class_dist / len(df_with_targets) * 100).round(2)}")
         
-        print("\n" + "=" * 60)
-        print(f"Итого подготовлено {len(df_with_targets)} образцов")
+        timestamp = _get_timestamp()
+        print(f"\n[{timestamp}] " + "=" * 60)
+        print(f"[{timestamp}] Итого подготовлено {len(df_with_targets)} образцов")
         
         # Подсчет фичей
         feature_cols = [c for c in df_with_targets.columns 
@@ -230,8 +301,19 @@ class GoldDataPreparator:
                        and c != 'signal_class' 
                        and c != 'signal_class_name'
                        and c != 'max_future_return']
-        print(f"Количество фичей: {len(feature_cols)}")
-        print("=" * 60)
+        print(f"[{timestamp}] Количество фичей: {len(feature_cols)}")
+        print(f"[{timestamp}] " + "=" * 60)
+        
+        # Сохраняем результат в кэш
+        if use_cache:
+            try:
+                cache_file = self._get_cache_file_path(symbol, months, end_date, load_ticks, load_higher_tf)
+                df_with_targets.to_pickle(cache_file)
+                file_size_mb = cache_file.stat().st_size / 1024 / 1024
+                print(f"[{_get_timestamp()}] ✓ Данные сохранены в кэш: {cache_file}")
+                print(f"[{_get_timestamp()}] Размер файла: {file_size_mb:.1f} MB")
+            except Exception as e:
+                print(f"[{_get_timestamp()}] ⚠ Ошибка при сохранении в кэш: {e}")
         
         return df_with_targets
     
@@ -244,7 +326,7 @@ class GoldDataPreparator:
             filepath: Путь для сохранения
         """
         df.to_csv(filepath, index=True)
-        print(f"Данные сохранены в {filepath}")
+        print(f"[{_get_timestamp()}] Данные сохранены в {filepath}")
     
     def load_prepared_data(self, filepath: str) -> pd.DataFrame:
         """
@@ -257,6 +339,6 @@ class GoldDataPreparator:
             DataFrame с данными
         """
         df = pd.read_csv(filepath, index_col=0, parse_dates=True)
-        print(f"Загружено {len(df)} образцов из {filepath}")
+        print(f"[{_get_timestamp()}] Загружено {len(df)} образцов из {filepath}")
         return df
 

@@ -465,6 +465,12 @@ class TickDataLoader:
                     ticks_data[minute_time] = ticks
                     processed_times.add(minute_time)
                     loaded_count += 1
+                    
+                    # Диагностика для первых 5 загруженных тиков
+                    if loaded_count <= 5:
+                        time_range_start = minute_time - timedelta(minutes=lookback_minutes)
+                        print(f"    [{self._get_timestamp()}] Пример {loaded_count}: Минута {minute_time}, тиков: {len(ticks)}, диапазон: {time_range_start} - {minute_time}")
+                    
                     # Проверяем, были ли тики из кэша
                     if self.use_cache and self.cache is not None:
                         cached = self.cache.get_cached_ticks(
@@ -476,6 +482,10 @@ class TickDataLoader:
                             cached_count += 1
                 else:
                     empty_count += 1
+                    # Диагностика для первых 5 пустых тиков
+                    if empty_count <= 5:
+                        time_range_start = minute_time - timedelta(minutes=lookback_minutes)
+                        print(f"    [{self._get_timestamp()}] Пустой {empty_count}: Минута {minute_time}, диапазон: {time_range_start} - {minute_time}")
             except Exception as e:
                 # Пропускаем ошибки для отдельных свечей
                 empty_count += 1

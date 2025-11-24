@@ -71,8 +71,11 @@ class TargetGenerator:
         if not future_returns:
             return signals.fillna(0)
         
-        max_return = pd.concat(future_returns, axis=1).max(axis=1)
-        max_return_period = pd.concat(future_returns, axis=1).idxmax(axis=1)
+        future_returns_df = pd.concat(future_returns, axis=1)
+        # Заполняем NaN перед вычислением max и idxmax, чтобы избежать FutureWarning
+        future_returns_df_filled = future_returns_df.fillna(-np.inf)
+        max_return = future_returns_df_filled.max(axis=1)
+        max_return_period = future_returns_df_filled.idxmax(axis=1)
         
         # Получаем знак максимальной доходности
         for period in [1, 5, 10, 20, 30, 60]:

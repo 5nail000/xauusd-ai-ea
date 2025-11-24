@@ -61,18 +61,20 @@ class EarlyStopping:
 class ModelCheckpoint:
     """Callback для сохранения лучших весов модели"""
     
-    def __init__(self, filepath: str, mode: str = 'min', save_best_only: bool = True):
+    def __init__(self, filepath: str, mode: str = 'min', save_best_only: bool = True, model_config=None):
         """
         Args:
             filepath: Путь для сохранения модели
             mode: 'min' для минимизации метрики, 'max' для максимизации
             save_best_only: Сохранять только лучшие веса
+            model_config: Конфигурация модели для сохранения
         """
         self.filepath = filepath
         self.mode = mode
         self.save_best_only = save_best_only
         self.best_score = None
         self.best_epoch = 0
+        self.model_config = model_config
     
     def __call__(self, model: torch.nn.Module, score: float, epoch: int):
         """
@@ -106,11 +108,32 @@ class ModelCheckpoint:
         """Сохраняет модель"""
         filepath = self.filepath.replace('.pth', f'{suffix}.pth')
         os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
-        torch.save({
+        
+        checkpoint = {
             'model_state_dict': model.state_dict(),
             'epoch': epoch,
             'score': self.best_score
-        }, filepath)
+        }
+        
+        # Сохраняем конфигурацию модели, если она предоставлена
+        if self.model_config is not None:
+            # Преобразуем dataclass в словарь для сохранения
+            if hasattr(self.model_config, '__dataclass_fields__'):
+                # Для dataclass - используем asdict если доступен, иначе вручную
+                try:
+                    from dataclasses import asdict
+                    checkpoint['model_config'] = asdict(self.model_config)
+                except (ImportError, TypeError):
+                    # Fallback: вручную собираем словарь
+                    checkpoint['model_config'] = {
+                        field.name: getattr(self.model_config, field.name)
+                        for field in self.model_config.__dataclass_fields__.values()
+                    }
+            elif hasattr(self.model_config, '__dict__'):
+                # Для обычных объектов
+                checkpoint['model_config'] = self.model_config.__dict__
+        
+        torch.save(checkpoint, filepath)
     
     def load_best_model(self, model: torch.nn.Module) -> Dict:
         """Загружает лучшие веса модели"""
@@ -200,4 +223,132 @@ class TrainingHistory:
         import pickle
         with open(filepath, 'rb') as f:
             self.history = pickle.load(f)
+    
+    def save_to_csv(self, filepath: str):
+        """Сохраняет историю в CSV"""
+        import pandas as pd
+        
+        # Создаем DataFrame
+        df = pd.DataFrame({
+            'epoch': range(1, len(self.history['train_loss']) + 1),
+            'train_loss': self.history['train_loss'],
+            'train_acc': self.history['train_acc'],
+            'val_loss': self.history['val_loss'],
+            'val_acc': self.history['val_acc'],
+            'lr': self.history['lr']
+        })
+        
+        # Добавляем метрики переобученности
+        df['loss_gap'] = df['train_loss'] - df['val_loss']
+        df['acc_gap'] = df['val_acc'] - df['train_acc']
+        df['overfitting_score'] = df['acc_gap']  # Отрицательное значение = переобучение
+        
+        df.to_csv(filepath, index=False)
+        print(f"История обучения сохранена в CSV: {filepath}")
+    
+    def analyze_overfitting(self) -> dict:
+        """Анализирует переобученность модели"""
+        if not self.history['train_loss']:
+            return {}
+        
+        import numpy as np
+        
+        # Берем последние значения
+        final_train_loss = self.history['train_loss'][-1]
+        final_val_loss = self.history['val_loss'][-1]
+        final_train_acc = self.history['train_acc'][-1]
+        final_val_acc = self.history['val_acc'][-1]
+        
+        # Вычисляем gap
+        loss_gap = final_train_loss - final_val_loss
+        acc_gap = final_val_acc - final_train_acc
+        
+        # Средние значения
+        avg_train_loss = np.mean(self.history['train_loss'])
+        avg_val_loss = np.mean(self.history['val_loss'])
+        avg_train_acc = np.mean(self.history['train_acc'])
+        avg_val_acc = np.mean(self.history['val_acc'])
+        
+        # Определяем переобученность
+        is_overfitting = False
+        overfitting_severity = "Нет"
+        
+        if acc_gap < -5:  # Train accuracy значительно выше val
+            is_overfitting = True
+            if acc_gap < -20:
+                overfitting_severity = "Сильное"
+            elif acc_gap < -10:
+                overfitting_severity = "Умеренное"
+            else:
+                overfitting_severity = "Слабое"
+        
+        analysis = {
+            'is_overfitting': is_overfitting,
+            'overfitting_severity': overfitting_severity,
+            'final_loss_gap': loss_gap,
+            'final_acc_gap': acc_gap,
+            'final_train_loss': final_train_loss,
+            'final_val_loss': final_val_loss,
+            'final_train_acc': final_train_acc,
+            'final_val_acc': final_val_acc,
+            'avg_train_loss': avg_train_loss,
+            'avg_val_loss': avg_val_loss,
+            'avg_train_acc': avg_train_acc,
+            'avg_val_acc': avg_val_acc,
+            'best_val_acc': max(self.history['val_acc']) if self.history['val_acc'] else 0,
+            'best_val_acc_epoch': self.get_best_epoch('val_acc', 'max') + 1
+        }
+        
+        return analysis
+    
+    def plot_history(self, save_path: str = None, show: bool = True):
+        """Строит графики обучения"""
+        import matplotlib.pyplot as plt
+        
+        if not self.history['train_loss']:
+            print("История пуста, нечего строить")
+            return
+        
+        epochs = range(1, len(self.history['train_loss']) + 1)
+        
+        # Создаем фигуру с 3 подграфиками
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        
+        # 1. Loss
+        axes[0].plot(epochs, self.history['train_loss'], 'b-', label='Train Loss', linewidth=2)
+        axes[0].plot(epochs, self.history['val_loss'], 'r-', label='Val Loss', linewidth=2)
+        axes[0].set_title('Model Loss', fontsize=14, fontweight='bold')
+        axes[0].set_xlabel('Epoch')
+        axes[0].set_ylabel('Loss')
+        axes[0].legend()
+        axes[0].grid(True, alpha=0.3)
+        
+        # 2. Accuracy
+        axes[1].plot(epochs, self.history['train_acc'], 'b-', label='Train Accuracy', linewidth=2)
+        axes[1].plot(epochs, self.history['val_acc'], 'r-', label='Val Accuracy', linewidth=2)
+        axes[1].set_title('Model Accuracy', fontsize=14, fontweight='bold')
+        axes[1].set_xlabel('Epoch')
+        axes[1].set_ylabel('Accuracy (%)')
+        axes[1].legend()
+        axes[1].grid(True, alpha=0.3)
+        
+        # 3. Learning Rate
+        axes[2].plot(epochs, self.history['lr'], 'g-', label='Learning Rate', linewidth=2)
+        axes[2].set_title('Learning Rate', fontsize=14, fontweight='bold')
+        axes[2].set_xlabel('Epoch')
+        axes[2].set_ylabel('LR')
+        axes[2].legend()
+        axes[2].grid(True, alpha=0.3)
+        axes[2].set_yscale('log')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            print(f"Графики обучения сохранены: {save_path}")
+        
+        if show:
+            plt.show()
+        else:
+            plt.close()
 

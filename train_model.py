@@ -8,6 +8,7 @@ from models.data_loader import create_dataloaders
 from models.trainer import ModelTrainer
 from models.evaluator import ModelEvaluator
 from config.model_config import TransformerConfig
+from utils.feature_documentation import export_feature_documentation_for_model
 
 def main():
     """
@@ -38,9 +39,22 @@ def main():
         target_column='signal_class'
     )
     
-    # Сохраняем scaler для использования в продакшене
-    seq_gen.save_scaler('models/feature_scaler.pkl')
+    # Сохраняем scaler для использования в продакшене с метаданными
+    num_features = train_loader.dataset.sequences.shape[2]
+    metadata = {
+        'model_type': model_type,
+        'num_features': num_features,
+        'sequence_length': 60,
+        'target_column': 'signal_class',
+        'training_data_months': config.training_data_months,
+        'preparation_config': {
+            'remove_correlated_features': False,  # TODO: получить из конфига подготовки данных
+            'correlation_threshold': 0.95
+        }
+    }
+    seq_gen.save_scaler('models/feature_scaler.pkl', metadata=metadata)
     print("  Scaler сохранен: models/feature_scaler.pkl")
+    print(f"  Метаданные: {config.training_data_months} месяцев, {num_features} фичей")
     
     # 3. Создание модели
     print("\n3. Создание модели...")
@@ -109,9 +123,24 @@ def main():
     print("\nРаспределение классов:")
     print(evaluator.get_class_distribution(test_loader))
     
+    # 6. Экспорт документации по фичам
+    print("\n6. Экспорт документации по фичам...")
+    try:
+        doc_path = export_feature_documentation_for_model(
+            model_type=model_type,
+            feature_columns=seq_gen.feature_columns,
+            scaler_path='models/feature_scaler.pkl'
+        )
+        print(f"  ✓ Документация сохранена: {doc_path}.json и {doc_path}.md")
+    except Exception as e:
+        print(f"  ⚠️  Ошибка при экспорте документации: {e}")
+        import traceback
+        traceback.print_exc()
+    
     print("\n" + "=" * 60)
     print("Обучение завершено!")
     print(f"Модель сохранена: models/checkpoints/{model_type}_model.pth")
+    print(f"Документация по фичам: {doc_path if 'doc_path' in locals() else 'N/A'}.json/.md")
     print("=" * 60)
 
 if __name__ == '__main__':

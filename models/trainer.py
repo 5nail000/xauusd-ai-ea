@@ -23,7 +23,8 @@ class ModelTrainer:
                  device: Optional[torch.device] = None,
                  learning_rate: float = 1e-4,
                  weight_decay: float = 1e-5,
-                 scheduler_type: str = 'cosine'):
+                 scheduler_type: str = 'cosine',
+                 model_config=None):
         """
         Args:
             model: Модель для обучения
@@ -31,12 +32,14 @@ class ModelTrainer:
             learning_rate: Learning rate
             weight_decay: Weight decay для регуляризации
             scheduler_type: Тип learning rate scheduler
+            model_config: Конфигурация модели для сохранения в checkpoint
         """
         self.model = model
         self.device = device if device is not None else torch.device(
             'cuda' if torch.cuda.is_available() else 'cpu'
         )
         self.model.to(self.device)
+        self.model_config = model_config
         
         # Оптимизатор
         self.optimizer = optim.AdamW(
@@ -167,7 +170,7 @@ class ModelTrainer:
         """
         # Callbacks
         early_stopping = EarlyStopping(patience=early_stopping_patience, mode='max')
-        checkpoint = ModelCheckpoint(checkpoint_path, mode='max', save_best_only=True)
+        checkpoint = ModelCheckpoint(checkpoint_path, mode='max', save_best_only=True, model_config=self.model_config)
         
         print(f"\nНачало обучения на {num_epochs} эпох")
         print("=" * 60)
@@ -223,6 +226,41 @@ class ModelTrainer:
             history_path = checkpoint_path.replace('.pth', '_history.pkl')
             self.history.save(history_path)
             print(f"История обучения сохранена: {history_path}")
+            
+            # Сохраняем в CSV
+            csv_path = checkpoint_path.replace('.pth', '_history.csv')
+            self.history.save_to_csv(csv_path)
+            
+            # Строим графики
+            plot_path = checkpoint_path.replace('.pth', '_training_curves.png')
+            self.history.plot_history(save_path=plot_path, show=False)
+            
+            # Анализ переобученности
+            overfitting_analysis = self.history.analyze_overfitting()
+            if overfitting_analysis:
+                print("\n" + "=" * 60)
+                print("АНАЛИЗ ПЕРЕОБУЧЕННОСТИ")
+                print("=" * 60)
+                print(f"Переобученность: {overfitting_analysis['overfitting_severity']}")
+                print(f"Финальный gap по accuracy: {overfitting_analysis['final_acc_gap']:.2f}%")
+                print(f"  Train Acc: {overfitting_analysis['final_train_acc']:.2f}%")
+                print(f"  Val Acc:   {overfitting_analysis['final_val_acc']:.2f}%")
+                print(f"Финальный gap по loss: {overfitting_analysis['final_loss_gap']:.4f}")
+                print(f"  Train Loss: {overfitting_analysis['final_train_loss']:.4f}")
+                print(f"  Val Loss:   {overfitting_analysis['final_val_loss']:.4f}")
+                print(f"\nЛучшая валидационная точность: {overfitting_analysis['best_val_acc']:.2f}%")
+                print(f"Достигнута на эпохе: {overfitting_analysis['best_val_acc_epoch']}")
+                
+                if overfitting_analysis['is_overfitting']:
+                    print(f"\n⚠️  Обнаружена переобученность!")
+                    print(f"   Рекомендации:")
+                    print(f"   - Увеличить dropout")
+                    print(f"   - Добавить регуляризацию")
+                    print(f"   - Увеличить размер обучающей выборки")
+                    print(f"   - Уменьшить сложность модели")
+                else:
+                    print(f"\n✓ Переобученность не обнаружена")
+                print("=" * 60)
         
         # Загружаем лучшие веса
         checkpoint.load_best_model(self.model)

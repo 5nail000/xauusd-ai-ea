@@ -5,7 +5,11 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional, List
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except ImportError as e:
+    mt5 = None
+    MT5_IMPORT_ERROR = e
 
 class MT5DataLoader:
     """Класс для загрузки данных из MetaTrader 5"""
@@ -32,6 +36,12 @@ class MT5DataLoader:
         Returns:
             True если подключение успешно, False иначе
         """
+        if mt5 is None:
+            raise ImportError(
+                "Библиотека MetaTrader5 не установлена или недоступна. "
+                "Установите пакет `MetaTrader5` и убедитесь, что терминал MT5 запущен."
+            ) from MT5_IMPORT_ERROR
+
         if not mt5.initialize():
             print("Ошибка инициализации MT5")
             return False

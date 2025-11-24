@@ -107,10 +107,47 @@ def add_trend_indicators(df: pd.DataFrame, sma_periods: List[int] = None,
     
     # Ichimoku Cloud компоненты
     if ta is not None:
-        ichimoku = ta.ichimoku(df['high'], df['low'], df['close'])
-        if ichimoku is not None and not ichimoku.empty:
-            for col in ichimoku.columns:
-                df[f'ichimoku_{col.lower()}'] = ichimoku[col]
+        try:
+            ichimoku = ta.ichimoku(df['high'], df['low'], df['close'])
+            # pandas_ta.ichimoku возвращает кортеж (ichimoku_a, ichimoku_b) или DataFrame
+            if ichimoku is not None:
+                ichimoku_dfs = []
+                
+                if isinstance(ichimoku, tuple):
+                    # Если кортеж, обрабатываем каждый элемент
+                    for item in ichimoku:
+                        if isinstance(item, pd.DataFrame) and not item.empty:
+                            ichimoku_dfs.append(item)
+                elif isinstance(ichimoku, pd.DataFrame) and not ichimoku.empty:
+                    ichimoku_dfs.append(ichimoku)
+                
+                # Объединяем все DataFrame
+                if ichimoku_dfs:
+                    # Используем flatten для обработки MultiIndex колонок
+                    ichimoku_combined = pd.concat(ichimoku_dfs, axis=1)
+                    # Упрощаем имена колонок, если есть MultiIndex
+                    if isinstance(ichimoku_combined.columns, pd.MultiIndex):
+                        ichimoku_combined.columns = ['_'.join(str(c) for c in col).strip() for col in ichimoku_combined.columns.values]
+                    
+                    # Добавляем каждую колонку как отдельную фичу
+                    for i, col in enumerate(ichimoku_combined.columns):
+                        try:
+                            # Используем iloc для безопасного доступа к колонке
+                            col_data = ichimoku_combined.iloc[:, i]
+                            
+                            # Убеждаемся, что это Series
+                            if isinstance(col_data, pd.Series):
+                                # Выравниваем индексы
+                                col_data_aligned = col_data.reindex(df.index, fill_value=np.nan)
+                                # Создаем безопасное имя колонки
+                                col_name = str(col).lower().replace(" ", "_").replace("(", "").replace(")", "").replace("[", "").replace("]", "")
+                                df[f'ichimoku_{col_name}'] = col_data_aligned.values
+                        except Exception as col_error:
+                            # Пропускаем проблемные колонки
+                            continue
+        except Exception as e:
+            # Если ошибка при расчете Ichimoku, просто пропускаем
+            print(f"    Предупреждение: не удалось рассчитать Ichimoku: {e}")
     
     return df
 

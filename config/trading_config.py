@@ -45,16 +45,19 @@ class TradingConfig:
         Вычисляет размер лота на основе уверенности сигнала
         
         Args:
-            signal_confidence: Уверенность модели (0-1)
+            signal_confidence: Уверенность модели (0-1) - пока не используется, всегда базовый лот
         
         Returns:
             Размер лота
         """
+        # Пока всегда используем базовый лот
+        # Уверенность сохраняется для будущего использования в стратегии
         lot_size = self.base_lot_size
         
-        if self.use_signal_confidence and signal_confidence is not None:
-            if signal_confidence >= self.confidence_threshold:
-                lot_size *= self.confidence_multiplier
+        # TODO: В будущем можно использовать уверенность для управления размером лота
+        # if self.use_signal_confidence and signal_confidence is not None:
+        #     if signal_confidence >= self.confidence_threshold:
+        #         lot_size *= self.confidence_multiplier
         
         return lot_size
     

@@ -6,6 +6,10 @@ import numpy as np
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 
+def _get_timestamp() -> str:
+    """Возвращает форматированную временную метку"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 def create_second_candles_from_ticks(ticks_df: pd.DataFrame, 
                                      interval_seconds: int) -> pd.DataFrame:
     """
@@ -23,7 +27,7 @@ def create_second_candles_from_ticks(ticks_df: pd.DataFrame,
         return pd.DataFrame()
     
     # Ресэмплинг по секундам
-    rule = f'{interval_seconds}S'
+    rule = f'{interval_seconds}s'
     
     # Open - первая цена (bid для открытия)
     open_bid = ticks_df['bid'].resample(rule).first()
@@ -131,9 +135,10 @@ def add_tick_statistics_features(ticks_df: pd.DataFrame,
         # Определяем интервал свечей по разнице времен
         if len(df) > 1:
             interval = (df.index[1] - df.index[0]).total_seconds()
-            rule = f'{int(interval)}S'
+            rule = f'{int(interval)}s'
         else:
-            rule = '1S'
+            interval = 1.0  # По умолчанию 1 секунда
+            rule = '1s'
         
         # Скорость изменения цены (тики в секунду)
         tick_rate = ticks_df['bid'].resample(rule).count() / interval
@@ -250,20 +255,53 @@ def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
     """
     df = df_minute.copy()
     
+    # Диагностика: статистика по тикам
+    total_minutes = len(df.index)
+    minutes_with_ticks = len(ticks_data)
+    print(f"[{_get_timestamp()}] Диагностика тиковых данных:")
+    print(f"[{_get_timestamp()}]   Всего минутных свечей: {total_minutes}")
+    print(f"[{_get_timestamp()}]   Минутных свечей с тиками в словаре: {minutes_with_ticks}")
+    
     # Создаем список для хранения новых фичей
     tick_features_list = []
     
+    # Счетчики для диагностики
+    ticks_with_data = 0
+    ticks_empty = 0
+    ticks_missing = 0
+    total_ticks_count = 0
+    sample_ticks_info = []  # Для первых 5 примеров
+    
     for minute_time in df.index:
         if minute_time not in ticks_data:
-            # Если нет тиков для этой минуты, заполняем NaN
+            # Если нет тиков для этой минуты, создаем пустой Series
+            # Он будет заполнен нулями позже
+            ticks_missing += 1
             tick_features_list.append(pd.Series(dtype=float))
             continue
         
         ticks_df = ticks_data[minute_time]
         
         if ticks_df.empty:
+            # Если тики пустые, создаем пустой Series
+            ticks_empty += 1
             tick_features_list.append(pd.Series(dtype=float))
             continue
+        
+        # Тики есть и не пустые
+        ticks_with_data += 1
+        tick_count = len(ticks_df)
+        total_ticks_count += tick_count
+        
+        # Сохраняем информацию о первых 5 примерах для диагностики
+        if len(sample_ticks_info) < 5:
+            time_range = f"{ticks_df.index.min()} - {ticks_df.index.max()}" if not ticks_df.empty else "N/A"
+            sample_ticks_info.append({
+                'minute': minute_time,
+                'tick_count': tick_count,
+                'time_range': time_range,
+                'columns': list(ticks_df.columns)
+            })
         
         # Создаем секундные свечи для всех интервалов
         second_candles = {}
@@ -278,11 +316,46 @@ def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
         features = aggregate_second_candles_features(second_candles, minute_time)
         tick_features_list.append(features)
     
+    # Выводим детальную диагностику
+    timestamp = _get_timestamp()
+    print(f"[{timestamp}] Статистика обработки тиков:")
+    print(f"[{timestamp}]   Минутных свечей с тиками (не пустые): {ticks_with_data}")
+    print(f"[{timestamp}]   Минутных свечей с пустыми тиками: {ticks_empty}")
+    print(f"[{timestamp}]   Минутных свечей без тиков в словаре: {ticks_missing}")
+    if ticks_with_data > 0:
+        avg_ticks = total_ticks_count / ticks_with_data
+        print(f"[{timestamp}]   Среднее количество тиков на свечу: {avg_ticks:.1f}")
+        print(f"[{timestamp}]   Всего тиков обработано: {total_ticks_count:,}")
+    
+    if sample_ticks_info:
+        print(f"[{timestamp}] Примеры тиковых данных (первые {len(sample_ticks_info)}):")
+        for i, info in enumerate(sample_ticks_info, 1):
+            print(f"[{timestamp}]   {i}. Минута {info['minute']}: {info['tick_count']} тиков, диапазон: {info['time_range']}")
+            if info['columns']:
+                cols_str = ', '.join(info['columns'][:5])
+                if len(info['columns']) > 5:
+                    cols_str += '...'
+                print(f"[{timestamp}]      Колонки: {cols_str}")
+    
     # Объединяем все фичи в DataFrame
     if tick_features_list:
         tick_features_df = pd.DataFrame(tick_features_list, index=df.index)
+        
+        # Диагностика: проверяем, сколько фичей создано
+        print(f"[{_get_timestamp()}] Создано тиковых фичей: {len(tick_features_df.columns)} колонок")
+        
+        # Заполняем NaN нулями для тиковых фичей (если тиков не было)
+        # Это предотвратит удаление всех строк при dropna()
+        nan_before = tick_features_df.isna().sum().sum()
+        tick_features_df = tick_features_df.fillna(0)
+        nan_after = tick_features_df.isna().sum().sum()
+        print(f"[{_get_timestamp()}] Заполнено NaN в тиковых фичах: {nan_before} -> {nan_after}")
+        
         # Объединяем с основным DataFrame
         df = pd.concat([df, tick_features_df], axis=1)
+        print(f"[{_get_timestamp()}] Объединено с основным DataFrame. Итого колонок: {len(df.columns)}")
+    else:
+        print(f"[{_get_timestamp()}] ⚠ Предупреждение: тиковые фичи не созданы (tick_features_list пуст)")
     
     return df
 

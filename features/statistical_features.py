@@ -3,7 +3,11 @@
 """
 import pandas as pd
 import numpy as np
+import warnings
 from typing import List, Optional
+
+# Подавляем предупреждения о фрагментации DataFrame (это не критично для работы)
+warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
 from scipy import stats
 
 def add_statistical_features(df: pd.DataFrame, columns: List[str] = None,

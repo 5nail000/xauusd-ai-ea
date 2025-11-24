@@ -63,6 +63,10 @@ class FeatureConfig:
     tick_lookback_minutes: int = 1  # Количество минут тиковых данных для загрузки
     tick_candle_intervals: List[int] = None  # Интервалы для секундных свечей (в секундах)
     
+    # Параметры для удаления коррелированных фичей
+    remove_correlated_features: bool = False  # Удалять ли высококоррелированные фичи
+    correlation_threshold: float = 0.95  # Порог корреляции для удаления
+    
     def __post_init__(self):
         """Инициализация значений по умолчанию"""
         if self.sma_periods is None:

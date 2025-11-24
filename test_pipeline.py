@@ -27,7 +27,10 @@ def test_data_preparation():
             end_date=None,
             months=1,
             load_ticks=True,
-            load_higher_tf=True
+            load_higher_tf=True,
+            use_cache=True,  # Использовать кэш
+            force_regenerate=False,  # Не принуждать регенерацию
+            ask_on_existing=False  # В тестовом режиме не спрашивать
         )
         
         if df.empty:
@@ -122,7 +125,8 @@ def test_model_training():
             device=device,
             learning_rate=1e-4,
             weight_decay=1e-5,
-            scheduler_type='cosine'
+            scheduler_type='cosine',
+            model_config=config  # Передаем конфигурацию для сохранения в checkpoint
         )
         
         trainer.train(

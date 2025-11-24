@@ -34,7 +34,17 @@ def main():
     # Параметры модели
     model_type = 'encoder'  # или 'timeseries'
     model_path = f'models/checkpoints/{model_type}_model.pth'
-    scaler_path = 'models/feature_scaler.pkl'
+    # Используем scaler с именем модели (если обучено через train_all_models.py)
+    # Или общий scaler (если обучено через train_model.py)
+    scaler_path = f'models/feature_scaler_{model_type}.pkl'
+    
+    # Проверяем наличие scaler с именем модели, если нет - используем общий
+    import os
+    if not os.path.exists(scaler_path):
+        scaler_path = 'models/feature_scaler.pkl'
+        print(f"   Используется общий scaler: {scaler_path}")
+    else:
+        print(f"   Используется scaler модели: {scaler_path}")
     
     # Загрузка тестовых данных
     print("\n1. Загрузка данных...")

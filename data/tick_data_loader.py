@@ -5,9 +5,10 @@ import pandas as pd
 import numpy as np
 import time
 import pickle
+import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import MetaTrader5 as mt5
 from data.tick_cache import TickCache
 
@@ -334,23 +335,71 @@ class TickDataLoader:
         """Возвращает путь к файлу прогресса обработки свечей"""
         return self.cache_dir / f'{symbol}_batch_progress.pkl'
     
+    def _get_progress_dir(self, symbol: str) -> Path:
+        """Директория для временных чанков прогресса"""
+        return self.cache_dir / f'{symbol}_progress'
+    
+    def _load_progress_metadata(self, progress_file: Path) -> Dict:
+        """Загружает метаданные прогресса без самих датафреймов"""
+        if progress_file.exists():
+            try:
+                with open(progress_file, 'rb') as f:
+                    return pickle.load(f)
+            except Exception as e:
+                timestamp = self._get_timestamp()
+                print(f"    [{timestamp}] ⚠ Не удалось прочитать метаданные прогресса: {e}")
+        return {}
+    
     def _save_batch_progress(self, symbol: str, ticks_data: Dict[datetime, pd.DataFrame], 
-                            processed_times: list):
+                            processed_times: list, dirty_minutes: Optional[List[datetime]] = None):
         """Сохраняет прогресс обработки свечей"""
         if not self.use_cache:
             return
         
+        dirty_minutes = dirty_minutes or []
+        
         progress_file = self._get_progress_file_path(symbol)
+        progress_dir = self._get_progress_dir(symbol)
+        progress_dir.mkdir(parents=True, exist_ok=True)
+        
+        metadata = self._load_progress_metadata(progress_file)
+        chunk_counter = metadata.get('chunk_counter', 0)
+        chunks = metadata.get('chunks', [])
+        
+        if dirty_minutes:
+            chunk_counter += 1
+            chunk_filename = f'chunk_{chunk_counter:05d}.pkl'
+            chunk_path = progress_dir / chunk_filename
+            
+            chunk_data = {}
+            for minute in dirty_minutes:
+                if minute in ticks_data:
+                    chunk_data[minute] = ticks_data[minute]
+            
+            try:
+                with open(chunk_path, 'wb') as chunk_file:
+                    pickle.dump(chunk_data, chunk_file, protocol=pickle.HIGHEST_PROTOCOL)
+            except Exception as e:
+                timestamp = self._get_timestamp()
+                print(f"    [{timestamp}] ⚠ Ошибка при сохранении чанка прогресса: {e}")
+            else:
+                chunks.append({
+                    'filename': chunk_filename,
+                    'minutes': dirty_minutes.copy(),
+                    'saved_at': datetime.now()
+                })
+        
         progress_data = {
-            'ticks_data': ticks_data,
             'processed_times': processed_times,
             'last_update': datetime.now(),
-            'symbol': symbol
+            'symbol': symbol,
+            'chunk_counter': chunk_counter,
+            'chunks': chunks
         }
         
         try:
             with open(progress_file, 'wb') as f:
-                pickle.dump(progress_data, f)
+                pickle.dump(progress_data, f, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception as e:
             print(f"    ⚠ Ошибка при сохранении прогресса: {e}")
     
@@ -368,6 +417,27 @@ class TickDataLoader:
                 progress_data = pickle.load(f)
                 # Проверяем, что это прогресс для правильного символа
                 if progress_data.get('symbol') == symbol:
+                    ticks_data = {}
+                    missing_chunks = []
+                    progress_dir = self._get_progress_dir(symbol)
+                    for chunk_info in progress_data.get('chunks', []):
+                        chunk_path = progress_dir / chunk_info.get('filename', '')
+                        if chunk_path.exists():
+                            try:
+                                with open(chunk_path, 'rb') as chunk_file:
+                                    chunk_data = pickle.load(chunk_file)
+                                    ticks_data.update(chunk_data)
+                            except Exception as chunk_error:
+                                timestamp = self._get_timestamp()
+                                print(f"    [{timestamp}] ⚠ Ошибка при чтении чанка {chunk_path}: {chunk_error}")
+                        else:
+                            missing_chunks.append(chunk_info.get('filename'))
+                    
+                    if missing_chunks:
+                        timestamp = self._get_timestamp()
+                        print(f"    [{timestamp}] ⚠ Отсутствуют файлы чанков прогресса: {', '.join(missing_chunks)}")
+                    
+                    progress_data['ticks_data'] = ticks_data
                     return progress_data
         except Exception as e:
             print(f"    ⚠ Ошибка при загрузке прогресса: {e}")
@@ -380,11 +450,18 @@ class TickDataLoader:
             return
         
         progress_file = self._get_progress_file_path(symbol)
+        progress_dir = self._get_progress_dir(symbol)
         if progress_file.exists():
             try:
                 progress_file.unlink()
             except Exception as e:
                 print(f"    ⚠ Ошибка при удалении файла прогресса: {e}")
+        
+        if progress_dir.exists():
+            try:
+                shutil.rmtree(progress_dir)
+            except Exception as e:
+                print(f"    ⚠ Ошибка при очистке директории прогресса: {e}")
     
     def load_ticks_batch(self, symbol: str, minute_times: pd.DatetimeIndex,
                         lookback_minutes: int = 1, 
@@ -415,6 +492,7 @@ class TickDataLoader:
         # Пытаемся загрузить сохраненный прогресс
         ticks_data = {}
         processed_times = set()
+        dirty_minutes = []
         start_index = 0
         
         if resume:
@@ -471,6 +549,7 @@ class TickDataLoader:
                 if not ticks.empty:
                     ticks_data[minute_time] = ticks
                     processed_times.add(minute_time)
+                    dirty_minutes.append(minute_time)
                     loaded_count += 1
                     
                     # Диагностика для первых 5 загруженных тиков
@@ -505,7 +584,13 @@ class TickDataLoader:
                     elapsed = time.time() - start_time
                     current_timestamp = self._get_timestamp()
                     duration_str = self._format_duration(elapsed)
-                    self._save_batch_progress(symbol, ticks_data, list(processed_times))
+                    self._save_batch_progress(
+                        symbol,
+                        ticks_data,
+                        list(processed_times),
+                        dirty_minutes=dirty_minutes
+                    )
+                    dirty_minutes.clear()
                     print(f"    [{current_timestamp}] ✓ Прогресс сохранен ({i + 1}/{len(minute_times)} свечей, время работы: {duration_str})")
                     last_save_index = i + 1
                 except Exception as e:
@@ -513,9 +598,15 @@ class TickDataLoader:
                     print(f"    [{current_timestamp}] ⚠ Ошибка при сохранении прогресса: {e}")
         
         # Сохраняем финальный прогресс
-        if self.use_cache and len(ticks_data) > 0:
+        if self.use_cache and len(ticks_data) > 0 and dirty_minutes:
             try:
-                self._save_batch_progress(symbol, ticks_data, list(processed_times))
+                self._save_batch_progress(
+                    symbol,
+                    ticks_data,
+                    list(processed_times),
+                    dirty_minutes=dirty_minutes
+                )
+                dirty_minutes.clear()
             except Exception as e:
                 current_timestamp = self._get_timestamp()
                 print(f"    [{current_timestamp}] ⚠ Ошибка при финальном сохранении прогресса: {e}")

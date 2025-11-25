@@ -4,6 +4,7 @@
 import pandas as pd
 import numpy as np
 import pickle
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 from datetime import datetime, time
@@ -322,8 +323,24 @@ class FeatureEngineer:
         # Заполняем NaN для корректного расчета корреляции
         df_clean = df[feature_columns].fillna(df[feature_columns].median()).fillna(0.0)
         
+        # Удаляем столбцы с нулевым стандартным отклонением (они не несут информации)
+        # и могут вызвать деление на ноль при вычислении корреляции
+        std_values = df_clean.std()
+        zero_std_cols = std_values[std_values == 0].index.tolist()
+        if zero_std_cols:
+            print(f"[{_get_timestamp()}]   Предупреждение: {len(zero_std_cols)} фичей с нулевым std будут исключены из анализа корреляции")
+            df_clean = df_clean.drop(columns=zero_std_cols)
+            feature_columns = [col for col in feature_columns if col not in zero_std_cols]
+        
+        # Проверяем, что после удаления столбцов осталось достаточно фичей для корреляции
+        if len(feature_columns) < 2:
+            return df
+        
         # Вычисляем корреляционную матрицу
-        corr_matrix = df_clean.corr()
+        # Подавляем предупреждения для столбцов с нулевым std (они уже удалены выше)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=RuntimeWarning)
+            corr_matrix = df_clean.corr(numeric_only=True)
         
         # Находим высококоррелированные пары
         high_corr_pairs = []

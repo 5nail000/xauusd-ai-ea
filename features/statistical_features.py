@@ -101,9 +101,16 @@ def add_statistical_features(df: pd.DataFrame, columns: List[str] = None,
                     autocorr_values.append(np.nan)
                 else:
                     series = df[col].iloc[i-window+1:i+1]
-                    if len(series) > 1 and series.std() > 0:
-                        autocorr = series.autocorr(lag=1)
-                        autocorr_values.append(autocorr if not np.isnan(autocorr) else 0)
+                    # Проверяем, что есть достаточно данных и std не нулевой
+                    if len(series) > 1:
+                        std_val = series.std()
+                        if std_val > 1e-10:  # Более строгая проверка для избежания деления на ноль
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings('ignore', category=RuntimeWarning)
+                                autocorr = series.autocorr(lag=1)
+                                autocorr_values.append(autocorr if not np.isnan(autocorr) else 0)
+                        else:
+                            autocorr_values.append(0)
                     else:
                         autocorr_values.append(0)
             df[f'{col}_autocorr_{window}'] = autocorr_values
@@ -121,9 +128,17 @@ def add_statistical_features(df: pd.DataFrame, columns: List[str] = None,
                 else:
                     series1 = df[col1].iloc[i-window+1:i+1]
                     series2 = df[col2].iloc[i-window+1:i+1]
-                    if len(series1) > 1 and series1.std() > 0 and series2.std() > 0:
-                        corr = series1.corr(series2)
-                        corr_values.append(corr if not np.isnan(corr) else 0)
+                    # Проверяем, что есть достаточно данных и std не нулевой
+                    if len(series1) > 1 and len(series2) > 1:
+                        std1 = series1.std()
+                        std2 = series2.std()
+                        if std1 > 1e-10 and std2 > 1e-10:  # Более строгая проверка
+                            with warnings.catch_warnings():
+                                warnings.filterwarnings('ignore', category=RuntimeWarning)
+                                corr = series1.corr(series2)
+                                corr_values.append(corr if not np.isnan(corr) else 0)
+                        else:
+                            corr_values.append(0)
                     else:
                         corr_values.append(0)
             df[f'{col1}_{col2}_corr_{window}'] = corr_values

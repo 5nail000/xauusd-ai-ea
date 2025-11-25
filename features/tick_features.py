@@ -272,7 +272,36 @@ def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
     total_ticks_count = 0
     sample_ticks_info = []  # Для первых 5 примеров
     
-    for minute_time in df.index:
+    # Прогресс-бар: выводим каждые 1% или каждые 1000 итераций (что больше)
+    progress_interval = max(1000, total_minutes // 100)
+    start_time = datetime.now()
+    last_progress_time = start_time
+    
+    print(f"[{_get_timestamp()}] Начало обработки тиковых фичей для {total_minutes:,} минутных свечей...")
+    
+    for idx, minute_time in enumerate(df.index, 1):
+        # Выводим прогресс
+        if idx % progress_interval == 0 or idx == total_minutes:
+            current_time = datetime.now()
+            elapsed = (current_time - start_time).total_seconds()
+            progress_pct = (idx / total_minutes) * 100
+            
+            # Оценка оставшегося времени
+            if idx > 0:
+                avg_time_per_item = elapsed / idx
+                remaining_items = total_minutes - idx
+                estimated_remaining = avg_time_per_item * remaining_items
+                remaining_str = f"{int(estimated_remaining // 60)}м {int(estimated_remaining % 60)}с"
+            else:
+                remaining_str = "расчет..."
+            
+            # Время с последнего вывода (для оценки скорости)
+            time_since_last = (current_time - last_progress_time).total_seconds()
+            speed = progress_interval / time_since_last if time_since_last > 0 else 0
+            
+            print(f"[{_get_timestamp()}] Прогресс: {idx:,}/{total_minutes:,} ({progress_pct:.1f}%) | "
+                  f"Осталось: ~{remaining_str} | Скорость: {speed:.1f} свечей/сек")
+            last_progress_time = current_time
         if minute_time not in ticks_data:
             # Если нет тиков для этой минуты, создаем пустой Series
             # Он будет заполнен нулями позже
@@ -315,6 +344,11 @@ def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
         # Агрегируем фичи
         features = aggregate_second_candles_features(second_candles, minute_time)
         tick_features_list.append(features)
+    
+    # Финальное сообщение о завершении обработки
+    total_time = (datetime.now() - start_time).total_seconds()
+    total_time_str = f"{int(total_time // 60)}м {int(total_time % 60)}с"
+    print(f"[{_get_timestamp()}] ✓ Обработка тиковых фичей завершена за {total_time_str}")
     
     # Выводим детальную диагностику
     timestamp = _get_timestamp()

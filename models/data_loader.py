@@ -145,7 +145,9 @@ class SequenceGenerator:
             sequences.append(sequence)
             targets.append(target)
         
-        return np.array(sequences), np.array(targets)
+        # Используем float32 вместо float64 для экономии памяти (в 2 раза меньше)
+        # Это критично для больших датасетов (155k+ образцов с 430 фичами)
+        return np.array(sequences, dtype=np.float32), np.array(targets, dtype=np.int64)
     
     def fit_scaler(self, df: pd.DataFrame):
         """Обучает scaler на данных"""

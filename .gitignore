@@ -28,6 +28,8 @@ ENV/
 # IDE
 .vscode/
 .idea/
+.snapshots/
+.cursor/
 *.swp
 *.swo
 *~

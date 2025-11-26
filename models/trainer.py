@@ -5,10 +5,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import numpy as np
 from typing import Optional, Dict
 import os
+from datetime import datetime
 
 from models.callbacks import EarlyStopping, ModelCheckpoint, LearningRateScheduler, TrainingHistory
 from models.evaluator import ModelEvaluator
@@ -24,7 +26,10 @@ class ModelTrainer:
                  learning_rate: float = 1e-4,
                  weight_decay: float = 1e-5,
                  scheduler_type: str = 'cosine',
-                 model_config=None):
+                 model_config=None,
+                 use_wandb: bool = False,
+                 wandb_project: str = "xauusd-ai-ea",
+                 model_type: str = "encoder"):
         """
         Args:
             model: Модель для обучения
@@ -33,6 +38,9 @@ class ModelTrainer:
             weight_decay: Weight decay для регуляризации
             scheduler_type: Тип learning rate scheduler
             model_config: Конфигурация модели для сохранения в checkpoint
+            use_wandb: Использовать ли Weights & Biases для логирования
+            wandb_project: Название проекта в W&B
+            model_type: Тип модели (для логирования)
         """
         self.model = model
         self.device = device if device is not None else torch.device(
@@ -40,6 +48,9 @@ class ModelTrainer:
         )
         self.model.to(self.device)
         self.model_config = model_config
+        self.use_wandb = use_wandb
+        self.wandb_project = wandb_project
+        self.model_type = model_type
         
         # Оптимизатор
         self.optimizer = optim.AdamW(
@@ -61,8 +72,40 @@ class ModelTrainer:
         # История обучения
         self.history = TrainingHistory()
         
+        # TensorBoard writer
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = f'workspace/models/logs/{model_type}_{timestamp}'
+        os.makedirs(log_dir, exist_ok=True)
+        self.writer = SummaryWriter(log_dir=log_dir)
+        
+        # Weights & Biases
+        if use_wandb:
+            try:
+                import wandb
+                wandb.init(
+                    project=wandb_project,
+                    name=f"{model_type}_{timestamp}",
+                    config={
+                        'model_type': model_type,
+                        'learning_rate': learning_rate,
+                        'weight_decay': weight_decay,
+                        'scheduler_type': scheduler_type,
+                        'device': str(self.device)
+                    }
+                )
+                self.wandb = wandb
+            except ImportError:
+                print("⚠️  W&B не установлен. Установите: pip install wandb")
+                self.use_wandb = False
+                self.wandb = None
+        else:
+            self.wandb = None
+        
         print(f"Модель будет обучаться на: {self.device}")
         print(f"Количество параметров: {sum(p.numel() for p in model.parameters()):,}")
+        if use_wandb:
+            print(f"W&B логирование: включено (проект: {wandb_project})")
+        print(f"TensorBoard логи: {log_dir}")
     
     def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
         """
@@ -80,6 +123,7 @@ class ModelTrainer:
         total = 0
         
         pbar = tqdm(train_loader, desc='Training')
+        global_step = 0
         for sequences, targets in pbar:
             sequences = sequences.to(self.device)
             targets = targets.to(self.device)
@@ -99,12 +143,19 @@ class ModelTrainer:
             _, predicted = torch.max(outputs.data, 1)
             total += targets.size(0)
             correct += (predicted == targets).sum().item()
+            accuracy = 100 * correct / total
+            
+            # Логируем метрики по батчам в TensorBoard
+            self.writer.add_scalar('Loss/Train_Batch', loss.item(), global_step)
+            self.writer.add_scalar('Accuracy/Train_Batch', accuracy, global_step)
             
             # Обновляем progress bar
             pbar.set_postfix({
                 'loss': f'{loss.item():.4f}',
-                'acc': f'{100 * correct / total:.2f}%'
+                'acc': f'{accuracy:.2f}%'
             })
+            
+            global_step += 1
         
         avg_loss = total_loss / len(train_loader)
         accuracy = 100 * correct / total
@@ -200,6 +251,23 @@ class ModelTrainer:
                 current_lr
             )
             
+            # Логируем метрики по эпохам в TensorBoard
+            self.writer.add_scalar('Loss/Train', train_metrics['loss'], epoch)
+            self.writer.add_scalar('Loss/Val', val_metrics['loss'], epoch)
+            self.writer.add_scalar('Accuracy/Train', train_metrics['accuracy'], epoch)
+            self.writer.add_scalar('Accuracy/Val', val_metrics['accuracy'], epoch)
+            self.writer.add_scalar('Learning_Rate', current_lr, epoch)
+            
+            # Логируем в W&B
+            if self.use_wandb and self.wandb:
+                self.wandb.log({
+                    'train_loss': train_metrics['loss'],
+                    'val_loss': val_metrics['loss'],
+                    'train_acc': train_metrics['accuracy'],
+                    'val_acc': val_metrics['accuracy'],
+                    'lr': current_lr
+                }, step=epoch)
+            
             # Сохраняем лучшую модель
             checkpoint(self.model, val_metrics['accuracy'], epoch)
             
@@ -223,16 +291,23 @@ class ModelTrainer:
         
         # Сохраняем историю
         if save_history:
-            history_path = checkpoint_path.replace('.pth', '_history.pkl')
+            # Определяем базовое имя модели из checkpoint_path
+            import os
+            model_name = os.path.basename(checkpoint_path).replace('.pth', '')
+            
+            # Сохраняем историю в workspace/models/metrics/
+            os.makedirs('workspace/models/metrics', exist_ok=True)
+            
+            history_path = f'workspace/models/metrics/{model_name}_history.pkl'
             self.history.save(history_path)
             print(f"История обучения сохранена: {history_path}")
             
             # Сохраняем в CSV
-            csv_path = checkpoint_path.replace('.pth', '_history.csv')
+            csv_path = f'workspace/models/metrics/{model_name}_history.csv'
             self.history.save_to_csv(csv_path)
             
             # Строим графики
-            plot_path = checkpoint_path.replace('.pth', '_training_curves.png')
+            plot_path = f'workspace/models/metrics/{model_name}_training_curves.png'
             self.history.plot_history(save_path=plot_path, show=False)
             
             # Анализ переобученности
@@ -265,6 +340,13 @@ class ModelTrainer:
         # Загружаем лучшие веса
         checkpoint.load_best_model(self.model)
         print(f"Загружены лучшие веса из: {checkpoint_path}")
+        
+        # Закрываем TensorBoard writer
+        self.writer.close()
+        
+        # Завершаем W&B сессию
+        if self.use_wandb and self.wandb:
+            self.wandb.finish()
     
     def load_checkpoint(self, checkpoint_path: str):
         """Загружает веса модели из checkpoint"""

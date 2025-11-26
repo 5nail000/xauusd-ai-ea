@@ -105,7 +105,7 @@ def main():
     )
     
     # Сохраняем подготовленные данные
-    output_file = f'data/gold_data_{args.months}months.csv'
+    output_file = f'workspace/prepared/features/gold_data_{args.months}months.csv'
     preparator.save_prepared_data(df, output_file)
     
     # Разделяем на train/validation/test
@@ -133,16 +133,16 @@ def main():
     print(splitter.get_class_distribution(test_df))
     
     # Сохраняем разделенные данные
-    train_df.to_csv('data/gold_train.csv', index=True)
-    val_df.to_csv('data/gold_val.csv', index=True)
-    test_df.to_csv('data/gold_test.csv', index=True)
+    train_df.to_csv('workspace/prepared/features/gold_train.csv', index=True)
+    val_df.to_csv('workspace/prepared/features/gold_val.csv', index=True)
+    test_df.to_csv('workspace/prepared/features/gold_test.csv', index=True)
     
     print("\n" + "=" * 60)
     print("Данные сохранены:")
     print(f"  - Полный датасет: {output_file}")
-    print(f"  - Train: data/gold_train.csv")
-    print(f"  - Validation: data/gold_val.csv")
-    print(f"  - Test: data/gold_test.csv")
+    print(f"  - Train: workspace/prepared/features/gold_train.csv")
+    print(f"  - Validation: workspace/prepared/features/gold_val.csv")
+    print(f"  - Test: workspace/prepared/features/gold_test.csv")
     print("=" * 60)
 
 if __name__ == '__main__':

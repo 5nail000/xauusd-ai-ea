@@ -34,22 +34,22 @@ def main():
     
     # Параметры модели
     model_type = 'encoder'  # или 'timeseries'
-    model_path = f'models/checkpoints/{model_type}_model.pth'
+    model_path = f'workspace/models/checkpoints/{model_type}_model.pth'
     # Используем scaler с именем модели (если обучено через train_all_models.py)
     # Или общий scaler (если обучено через train_model.py)
-    scaler_path = f'models/feature_scaler_{model_type}.pkl'
+    scaler_path = f'workspace/prepared/scalers/feature_scaler_{model_type}.pkl'
     
     # Проверяем наличие scaler с именем модели, если нет - используем общий
     import os
     if not os.path.exists(scaler_path):
-        scaler_path = 'models/feature_scaler.pkl'
+        scaler_path = 'workspace/prepared/scalers/feature_scaler.pkl'
         print(f"   Используется общий scaler: {scaler_path}")
     else:
         print(f"   Используется scaler модели: {scaler_path}")
     
     # Загрузка тестовых данных
     print("\n1. Загрузка данных...")
-    test_df = pd.read_csv('data/gold_test.csv', index_col=0, parse_dates=True)
+    test_df = pd.read_csv('workspace/prepared/features/gold_test.csv', index_col=0, parse_dates=True)
     print(f"   Загружено {len(test_df)} свечей")
     
     # Конфигурация мониторинга (можно настроить под свои нужды)
@@ -75,19 +75,20 @@ def main():
     
     # Сохранение результатов
     print("\n4. Сохранение результатов...")
+    os.makedirs('workspace/results/backtests', exist_ok=True)
     results_df = pd.DataFrame([results])
-    results_df.to_csv('trading/backtest_results.csv', index=False)
+    results_df.to_csv('workspace/results/backtests/backtest_results.csv', index=False)
     
     # Сохранение истории equity
     if 'equity_history' in results:
-        results['equity_history'].to_csv('trading/equity_history.csv', index=False)
-        print("   История equity сохранена: trading/equity_history.csv")
+        results['equity_history'].to_csv('workspace/results/backtests/equity_history.csv', index=False)
+        print("   История equity сохранена: workspace/results/backtests/equity_history.csv")
     
     # Сохранение закрытых позиций
     if backtester.position_manager.closed_positions:
         positions_df = pd.DataFrame(backtester.position_manager.closed_positions)
-        positions_df.to_csv('trading/closed_positions.csv', index=False)
-        print("   Закрытые позиции сохранены: trading/closed_positions.csv")
+        positions_df.to_csv('workspace/results/backtests/closed_positions.csv', index=False)
+        print("   Закрытые позиции сохранены: workspace/results/backtests/closed_positions.csv")
     
     # Выводим информацию о мониторинге
     if 'performance_monitoring' in results:
@@ -99,7 +100,7 @@ def main():
     print("\n" + "=" * 60)
     print("Бэктестинг завершен!")
     print("=" * 60)
-    print("\n💡 Графики мониторинга сохранены в: trading/monitoring_plots/")
+    print("\n💡 Графики мониторинга сохранены в: workspace/results/monitoring/")
     print("📖 Подробнее: docs/12_PERFORMANCE_MONITORING.md")
 
 if __name__ == '__main__':

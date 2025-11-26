@@ -12,13 +12,13 @@ class TargetGenerator:
     """
     
     def __init__(self, 
-                 breakout_threshold: float = 50.0,
-                 bounce_threshold: float = 30.0,
+                 breakout_threshold: float = 200.0,
+                 bounce_threshold: float = 150.0,
                  lookahead_periods: int = 60):
         """
         Args:
-            breakout_threshold: Порог для пробоя в пунктах (по умолчанию 50)
-            bounce_threshold: Порог для отскока в пунктах (по умолчанию 30)
+            breakout_threshold: Порог для пробоя в пунктах (по умолчанию 200)
+            bounce_threshold: Порог для отскока в пунктах (по умолчанию 150)
             lookahead_periods: Количество периодов вперед для анализа (по умолчанию 60 минут)
         """
         self.breakout_threshold = breakout_threshold
@@ -51,14 +51,19 @@ class TargetGenerator:
     def classify_signal(self, df: pd.DataFrame, 
                        price_column: str = 'close') -> pd.Series:
         """
-        Классифицирует сигналы: пробой, отскок, неопределенность
+        Классифицирует сигналы: пробой вверх/вниз, отскок вверх/вниз, неопределенность
         
         Args:
             df: DataFrame с ценовыми данными и future_return колонками
             price_column: Название колонки с ценой
         
         Returns:
-            Series с метками классов: 0=неопределенность, 1=пробой, 2=отскок
+            Series с метками классов:
+            0 = Неопределенность
+            1 = Пробой вверх (BUY)
+            2 = Пробой вниз (SELL)
+            3 = Отскок вверх (BUY после падения)
+            4 = Отскок вниз (SELL после роста)
         """
         signals = pd.Series(index=df.index, dtype=int)
         
@@ -77,12 +82,6 @@ class TargetGenerator:
         max_return = future_returns_df_filled.max(axis=1)
         max_return_period = future_returns_df_filled.idxmax(axis=1)
         
-        # Получаем знак максимальной доходности
-        for period in [1, 5, 10, 20, 30, 60]:
-            if f'future_return_{period}' in df.columns:
-                max_return_sign = df[f'future_return_{period}'].apply(np.sign)
-                break
-        
         # Анализируем каждый временной шаг
         for i in range(len(df)):
             if pd.isna(max_return.iloc[i]):
@@ -96,20 +95,25 @@ class TargetGenerator:
             period_num = int(period_idx.split('_')[-1])
             period_return = df[f'future_return_{period_num}'].iloc[i]
             
-            # Проверяем на пробой
+            # СНАЧАЛА проверяем на отскок (приоритет)
+            bounce_result = self._check_bounce(df, i, period_num, period_return)
+            if bounce_result is not None:
+                # bounce_result может быть 'up' или 'down'
+                if bounce_result == 'up':
+                    signals.iloc[i] = 3  # Отскок вверх
+                elif bounce_result == 'down':
+                    signals.iloc[i] = 4  # Отскок вниз
+                continue
+            
+            # Затем проверяем на пробой
             if abs(period_return) >= self.breakout_threshold:
-                # Проверяем, что движение было в одном направлении
-                # (нет значительного разворота)
                 is_breakout = self._check_breakout(df, i, period_num, period_return)
                 if is_breakout:
-                    signals.iloc[i] = 1  # Пробой
+                    if period_return > 0:
+                        signals.iloc[i] = 1  # Пробой вверх
+                    else:
+                        signals.iloc[i] = 2  # Пробой вниз
                     continue
-            
-            # Проверяем на отскок
-            is_bounce = self._check_bounce(df, i, period_num, period_return)
-            if is_bounce:
-                signals.iloc[i] = 2  # Отскок
-                continue
             
             # Иначе - неопределенность
             signals.iloc[i] = 0
@@ -150,33 +154,43 @@ class TargetGenerator:
         return abs(period_return) >= self.breakout_threshold
     
     def _check_bounce(self, df: pd.DataFrame, idx: int, 
-                     period: int, period_return: float) -> bool:
+                     period: int, period_return: float) -> Optional[str]:
         """
         Проверяет, является ли движение отскоком
         
         Отскок: движение в одну сторону, затем разворот > bounce_threshold
+        
+        Returns:
+            'up' если отскок вверх (после падения), 
+            'down' если отскок вниз (после роста),
+            None если это не отскок
         """
         if idx + period >= len(df):
-            return False
+            return None
         
-        # Проверяем промежуточные доходности
+        # Проверяем промежуточные доходности до 70% периода
+        max_check_period = int(period * 0.7)
         intermediate_returns = []
-        for p in [1, 5, 10, 20]:
-            if p < period and idx + p < len(df):
+        intermediate_periods = []
+        
+        for p in [1, 5, 10, 20, 30]:
+            if p <= max_check_period and idx + p < len(df):
                 if f'future_return_{p}' in df.columns:
                     ret = df[f'future_return_{p}'].iloc[idx]
                     intermediate_returns.append(ret)
+                    intermediate_periods.append(p)
         
         if len(intermediate_returns) < 2:
-            return False
+            return None
         
-        # Ищем паттерн: движение в одну сторону, затем разворот
-        initial_direction = np.sign(intermediate_returns[0])
-        max_movement = max([abs(r) for r in intermediate_returns])
+        # Ищем максимальное движение в начальном направлении (до 70% периода)
+        max_initial_movement = max([abs(r) for r in intermediate_returns])
+        max_initial_idx = np.argmax([abs(r) for r in intermediate_returns])
+        initial_direction = np.sign(intermediate_returns[max_initial_idx])
         
-        # Проверяем, было ли начальное движение
-        if max_movement < 20:  # Минимальное движение для отскока
-            return False
+        # Проверяем, было ли начальное движение достаточно сильным
+        if max_initial_movement < 50:  # Минимальное движение для отскока
+            return None
         
         # Проверяем финальную доходность (должна быть противоположного знака)
         final_direction = np.sign(period_return)
@@ -186,9 +200,13 @@ class TargetGenerator:
             if initial_direction != final_direction:
                 # Проверяем, что разворот достаточно сильный
                 if abs(period_return) >= self.bounce_threshold:
-                    return True
+                    # Определяем направление отскока
+                    if final_direction > 0:  # Разворот вверх после падения
+                        return 'up'
+                    else:  # Разворот вниз после роста
+                        return 'down'
         
-        return False
+        return None
     
     def generate_targets(self, df: pd.DataFrame, 
                        price_column: str = 'close') -> pd.DataFrame:
@@ -215,7 +233,13 @@ class TargetGenerator:
         df['signal_class'] = signals
         
         # Добавляем названия классов
-        class_names = {0: 'uncertainty', 1: 'breakout', 2: 'bounce'}
+        class_names = {
+            0: 'uncertainty',
+            1: 'breakout_up',
+            2: 'breakout_down',
+            3: 'bounce_up',
+            4: 'bounce_down'
+        }
         df['signal_class_name'] = df['signal_class'].map(class_names)
         
         # Добавляем метрики для анализа

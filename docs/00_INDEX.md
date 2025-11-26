@@ -21,6 +21,8 @@
 10. **[10_TRADING_MODEL_PLAN.md](10_TRADING_MODEL_PLAN.md)** - план проекта и статус выполнения
 11. **[11_FEATURE_OPTIMIZATION.md](11_FEATURE_OPTIMIZATION.md)** - оптимизация фичей
 12. **[12_PERFORMANCE_MONITORING.md](12_PERFORMANCE_MONITORING.md)** - мониторинг производительности и защита от деградации
+13. **[13_PAPERSPACE_SETUP.md](13_PAPERSPACE_SETUP.md)** - настройка обучения на Paperspace
+14. **[14_METRICS_GUIDE.md](14_METRICS_GUIDE.md)** - интерактивные метрики обучения (TensorBoard и W&B)
 
 ## Быстрая навигация
 
@@ -40,6 +42,8 @@
 - **План проекта**: [10_TRADING_MODEL_PLAN.md](10_TRADING_MODEL_PLAN.md)
 - **Оптимизация фичей**: [11_FEATURE_OPTIMIZATION.md](11_FEATURE_OPTIMIZATION.md)
 - **Мониторинг производительности**: [12_PERFORMANCE_MONITORING.md](12_PERFORMANCE_MONITORING.md)
+- **Обучение на Paperspace**: [13_PAPERSPACE_SETUP.md](13_PAPERSPACE_SETUP.md)
+- **Интерактивные метрики**: [14_METRICS_GUIDE.md](14_METRICS_GUIDE.md)
 
 ## Структура документации
 
@@ -57,7 +61,9 @@ docs/
 ├── 09_TICK_CACHE_GUIDE.md   # Кэширование
 ├── 10_TRADING_MODEL_PLAN.md # План проекта
 ├── 11_FEATURE_OPTIMIZATION.md # Оптимизация фичей
-└── 12_PERFORMANCE_MONITORING.md # Мониторинг производительности
+├── 12_PERFORMANCE_MONITORING.md # Мониторинг производительности
+├── 13_PAPERSPACE_SETUP.md # Обучение на Paperspace
+└── 14_METRICS_GUIDE.md # Интерактивные метрики
 ```
 
 ## Типичный workflow

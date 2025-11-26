@@ -48,6 +48,9 @@ models/checkpoints/*.pkl
 trading/*.csv
 !trading/.gitkeep
 
+# Workspace (all data, models, results)
+workspace/
+
 # Logs
 *.log
 

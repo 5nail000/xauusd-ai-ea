@@ -14,7 +14,7 @@ class TickCache:
     Класс для управления кэшем тиковых данных
     """
     
-    def __init__(self, cache_dir: str = 'data/ticks'):
+    def __init__(self, cache_dir: str = 'workspace/raw_data/ticks'):
         """
         Args:
             cache_dir: Директория для хранения кэша тиков

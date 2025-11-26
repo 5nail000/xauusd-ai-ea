@@ -25,7 +25,7 @@ class GoldDataPreparator:
     def __init__(self, 
                  config: Optional[FeatureConfig] = None,
                  training_months: int = 6,
-                 cache_dir: str = 'data/prepared'):
+                 cache_dir: str = 'workspace/raw_data/cache'):
         """
         Args:
             config: Конфигурация фичей
@@ -38,8 +38,8 @@ class GoldDataPreparator:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.feature_engineer = FeatureEngineer(self.config)
         self.target_generator = TargetGenerator(
-            breakout_threshold=50.0,
-            bounce_threshold=30.0,
+            breakout_threshold=200.0,
+            bounce_threshold=150.0,
             lookahead_periods=60
         )
     

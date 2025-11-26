@@ -27,7 +27,7 @@ class TransformerConfig:
     n_layers: int = 6  # Количество encoder слоев
     
     # Параметры классификации
-    num_classes: int = 3  # Количество классов (пробой, отскок, неопределенность)
+    num_classes: int = 5  # Количество классов (0=неопределенность, 1=пробой вверх, 2=пробой вниз, 3=отскок вверх, 4=отскок вниз)
     
     # Параметры для Time Series Transformer
     use_temporal_encoding: bool = True  # Использовать временное кодирование

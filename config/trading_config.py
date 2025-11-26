@@ -40,6 +40,11 @@ class TradingConfig:
     max_open_positions: int = 1  # Максимальное количество открытых позиций
     allow_opposite_positions: bool = False  # Разрешить противоположные позиции
     
+    # Отложенный вход для отскоков
+    bounce_confirmation_enabled: bool = True  # Включить подтверждение отскоков
+    bounce_confirmation_periods: int = 3  # Количество свечей для подтверждения
+    bounce_min_reversal_pips: float = 10.0  # Минимальный разворот в пунктах для подтверждения
+    
     def calculate_lot_size(self, signal_confidence: Optional[float] = None) -> float:
         """
         Вычисляет размер лота на основе уверенности сигнала

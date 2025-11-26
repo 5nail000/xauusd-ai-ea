@@ -3,6 +3,7 @@
 """
 import pandas as pd
 import torch
+import argparse
 from models.model_factory import create_model, get_model_config
 from models.data_loader import create_dataloaders
 from models.trainer import ModelTrainer
@@ -14,15 +15,20 @@ def main():
     """
     Обучение Transformer модели для классификации торговых сигналов
     """
+    parser = argparse.ArgumentParser(description='Обучение Transformer модели')
+    parser.add_argument('--use-wandb', action='store_true', help='Использовать Weights & Biases для логирования')
+    parser.add_argument('--wandb-project', type=str, default='xauusd-ai-ea', help='Название проекта в W&B')
+    args = parser.parse_args()
+    
     print("=" * 60)
     print("Обучение Transformer модели")
     print("=" * 60)
     
     # 1. Загрузка данных
     print("\n1. Загрузка данных...")
-    train_df = pd.read_csv('data/gold_train.csv', index_col=0, parse_dates=True)
-    val_df = pd.read_csv('data/gold_val.csv', index_col=0, parse_dates=True)
-    test_df = pd.read_csv('data/gold_test.csv', index_col=0, parse_dates=True)
+    train_df = pd.read_csv('workspace/prepared/features/gold_train.csv', index_col=0, parse_dates=True)
+    val_df = pd.read_csv('workspace/prepared/features/gold_val.csv', index_col=0, parse_dates=True)
+    test_df = pd.read_csv('workspace/prepared/features/gold_test.csv', index_col=0, parse_dates=True)
     
     print(f"  Train: {len(train_df)} образцов")
     print(f"  Val:   {len(val_df)} образцов")
@@ -52,8 +58,8 @@ def main():
             'correlation_threshold': 0.95
         }
     }
-    seq_gen.save_scaler('models/feature_scaler.pkl', metadata=metadata)
-    print("  Scaler сохранен: models/feature_scaler.pkl")
+    seq_gen.save_scaler('workspace/prepared/scalers/feature_scaler.pkl', metadata=metadata)
+    print("  Scaler сохранен: workspace/prepared/scalers/feature_scaler.pkl")
     print(f"  Метаданные: {config.training_data_months} месяцев, {num_features} фичей")
     
     # 3. Создание модели
@@ -63,7 +69,7 @@ def main():
     config = get_model_config(
         model_type=model_type,
         num_features=train_loader.dataset.sequences.shape[2],
-        num_classes=3,
+        num_classes=5,
         sequence_length=60,
         d_model=256,
         n_layers=4,
@@ -88,7 +94,11 @@ def main():
         device=device,
         learning_rate=config.learning_rate,
         weight_decay=1e-5,
-        scheduler_type='cosine'
+        scheduler_type='cosine',
+        model_config=config,
+        model_type=model_type,
+        use_wandb=args.use_wandb,
+        wandb_project=args.wandb_project
     )
     
     trainer.train(
@@ -96,7 +106,7 @@ def main():
         val_loader=val_loader,
         num_epochs=config.num_epochs,
         early_stopping_patience=config.early_stopping_patience,
-        checkpoint_path=f'models/checkpoints/{model_type}_model.pth',
+        checkpoint_path=f'workspace/models/checkpoints/{model_type}_model.pth',
         save_history=True
     )
     
@@ -116,7 +126,7 @@ def main():
     # Confusion matrix
     evaluator.plot_confusion_matrix(
         test_loader,
-        save_path=f'models/confusion_matrix_{model_type}.png'
+        save_path=f'workspace/models/metrics/confusion_matrix_{model_type}.png'
     )
     
     # Распределение классов
@@ -129,7 +139,7 @@ def main():
         doc_path = export_feature_documentation_for_model(
             model_type=model_type,
             feature_columns=seq_gen.feature_columns,
-            scaler_path='models/feature_scaler.pkl'
+            scaler_path='workspace/prepared/scalers/feature_scaler.pkl'
         )
         print(f"  ✓ Документация сохранена: {doc_path}.json и {doc_path}.md")
     except Exception as e:
@@ -139,7 +149,7 @@ def main():
     
     print("\n" + "=" * 60)
     print("Обучение завершено!")
-    print(f"Модель сохранена: models/checkpoints/{model_type}_model.pth")
+    print(f"Модель сохранена: workspace/models/checkpoints/{model_type}_model.pth")
     print(f"Документация по фичам: {doc_path if 'doc_path' in locals() else 'N/A'}.json/.md")
     print("=" * 60)
 

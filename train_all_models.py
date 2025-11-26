@@ -11,7 +11,8 @@ from models.evaluator import ModelEvaluator
 from utils.feature_documentation import export_feature_documentation_for_model
 
 def train_model_type(model_type: str, training_months: int = 12, batch_size: int = 32, 
-                     num_epochs: int = 100, early_stopping_patience: int = 10):
+                     num_epochs: int = 100, early_stopping_patience: int = 10,
+                     use_wandb: bool = False, wandb_project: str = 'xauusd-ai-ea'):
     """Обучает модель указанного типа"""
     print("=" * 80)
     print(f"ОБУЧЕНИЕ {model_type.upper()} МОДЕЛИ НА {training_months} МЕСЯЦАХ")
@@ -20,9 +21,9 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
     # 1. Загрузка данных
     print("\n1. Загрузка данных...")
     try:
-        train_df = pd.read_csv('data/gold_train.csv', index_col=0, parse_dates=True)
-        val_df = pd.read_csv('data/gold_val.csv', index_col=0, parse_dates=True)
-        test_df = pd.read_csv('data/gold_test.csv', index_col=0, parse_dates=True)
+        train_df = pd.read_csv('workspace/prepared/features/gold_train.csv', index_col=0, parse_dates=True)
+        val_df = pd.read_csv('workspace/prepared/features/gold_val.csv', index_col=0, parse_dates=True)
+        test_df = pd.read_csv('workspace/prepared/features/gold_test.csv', index_col=0, parse_dates=True)
     except FileNotFoundError as e:
         print(f"❌ Ошибка: Файл данных не найден: {e}")
         print("   Сначала запустите: python prepare_gold_data.py --months <N>")
@@ -47,7 +48,7 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
     print(f"  Размерность фичей: {num_features}")
     
     # Сохраняем scaler для каждого типа модели с метаданными
-    scaler_path = f'models/feature_scaler_{model_type}.pkl'
+    scaler_path = f'workspace/prepared/scalers/feature_scaler_{model_type}.pkl'
     
     # Создаем метаданные о подготовке данных
     metadata = {
@@ -73,7 +74,7 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
         config = get_model_config(
             model_type='encoder',
             num_features=num_features,
-            num_classes=3,
+            num_classes=5,
             sequence_length=60,
             d_model=256,
             n_layers=4,
@@ -84,7 +85,7 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
         config = get_model_config(
             model_type='timeseries',
             num_features=num_features,
-            num_classes=3,
+            num_classes=5,
             sequence_length=60,
             d_model=256,
             n_layers=6,
@@ -117,10 +118,13 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
         learning_rate=config.learning_rate,
         weight_decay=1e-5,
         scheduler_type='cosine',
-        model_config=config
+        model_config=config,
+        model_type=model_type,
+        use_wandb=use_wandb,
+        wandb_project=wandb_project
     )
     
-    checkpoint_path = f'models/checkpoints/{model_type}_model.pth'
+    checkpoint_path = f'workspace/models/checkpoints/{model_type}_model.pth'
     trainer.train(
         train_loader=train_loader,
         val_loader=val_loader,
@@ -146,7 +150,7 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
     # Confusion matrix
     evaluator.plot_confusion_matrix(
         test_loader,
-        save_path=f'models/confusion_matrix_{model_type}.png',
+        save_path=f'workspace/models/metrics/confusion_matrix_{model_type}.png',
         show=False
     )
     
@@ -273,7 +277,9 @@ def main():
                 training_months=args.months,
                 batch_size=args.batch_size,
                 num_epochs=args.epochs,
-                early_stopping_patience=args.patience
+                early_stopping_patience=args.patience,
+                use_wandb=args.use_wandb,
+                wandb_project=args.wandb_project
             )
             all_results[model_type] = results
         except Exception as e:

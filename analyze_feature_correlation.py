@@ -9,6 +9,9 @@ import seaborn as sns
 from pathlib import Path
 from typing import List, Tuple, Set
 
+# Защищенные фичи - никогда не удаляются
+PROTECTED_FEATURES = ['open', 'high', 'low', 'close']
+
 def find_highly_correlated_pairs(df: pd.DataFrame, 
                                  feature_columns: List[str],
                                  threshold: float = 0.95) -> List[Tuple[str, str, float]]:
@@ -49,7 +52,7 @@ def select_features_to_remove(high_corr_pairs: List[Tuple[str, str, float]],
     Выбирает фичи для удаления из высококоррелированных пар
     
     Стратегия: удаляем более сложные или производные фичи,
-    оставляя более простые и базовые
+    оставляя более простые и базовые. Базовые OHLC цены защищены.
     
     Args:
         high_corr_pairs: Список высококоррелированных пар
@@ -60,32 +63,120 @@ def select_features_to_remove(high_corr_pairs: List[Tuple[str, str, float]],
     """
     features_to_remove = set()
     
-    # Приоритеты: оставляем более простые фичи
-    priority_keywords = {
-        'high': ['close', 'open', 'high', 'low', 'returns', 'log_returns'],
-        'medium': ['sma', 'ema', 'rsi', 'macd', 'atr'],
-        'low': ['lag', 'stat', 'tick', 'multitimeframe', 'position', 'shadow']
-    }
+    def is_protected(feature_name: str) -> bool:
+        """Проверяет, является ли фича защищенной (базовые OHLC)"""
+        return feature_name.lower() in [f.lower() for f in PROTECTED_FEATURES]
     
     def get_priority(feature_name: str) -> int:
-        """Возвращает приоритет фичи (меньше = выше приоритет)"""
+        """
+        Возвращает приоритет фичи (меньше = выше приоритет)
+        Приоритеты:
+        0 - защищенные фичи (open, high, low, close)
+        1 - простые базовые фичи (sma, ema, rsi, macd, atr, momentum)
+        2 - производные фичи (close_rolling_mean, close_momentum, returns_rolling)
+        3 - сложные/длинные фичи (price_sma_distance, close_rolling_median, multitimeframe)
+        4 - lag фичи (close_lag_1, close_lag_2, etc.)
+        """
         feature_lower = feature_name.lower()
-        for priority, keywords in priority_keywords.items():
-            if any(keyword in feature_lower for keyword in keywords):
-                if priority == 'high':
-                    return 1
-                elif priority == 'medium':
-                    return 2
-                else:
-                    return 3
-        return 2  # По умолчанию средний приоритет
+        
+        # Защищенные фичи - наивысший приоритет
+        if is_protected(feature_name):
+            return 0
+        
+        # Простые базовые индикаторы (короткие имена)
+        simple_indicators = ['sma', 'ema', 'rsi', 'macd', 'atr', 'momentum', 'std', 'bb_']
+        if any(ind in feature_lower for ind in simple_indicators) and len(feature_name) < 15:
+            # Проверяем, что это не производная фича
+            if 'rolling' not in feature_lower and 'distance' not in feature_lower:
+                return 1
+        
+        # Lag фичи - низкий приоритет (можно удалить часть)
+        if 'lag' in feature_lower:
+            return 4
+        
+        # Производные фичи (rolling, distance, etc.)
+        if any(x in feature_lower for x in ['rolling', 'distance', 'position', 'zscore', 'percentile']):
+            return 3
+        
+        # Сложные/длинные имена
+        if len(feature_name) > 20:
+            return 3
+        
+        # По умолчанию средний приоритет
+        return 2
+    
+    def prefer_simple_name(feat1: str, feat2: str) -> str:
+        """
+        Выбирает более простое имя из двух
+        Предпочтения:
+        1. Более короткое имя
+        2. Меньше подчеркиваний
+        3. Более стандартное название (sma > close_rolling_mean)
+        """
+        # Если одно имя намного короче
+        if len(feat1) < len(feat2) - 3:
+            return feat1
+        if len(feat2) < len(feat1) - 3:
+            return feat2
+        
+        # Если длины похожи, считаем подчеркивания
+        underscores1 = feat1.count('_')
+        underscores2 = feat2.count('_')
+        if underscores1 < underscores2:
+            return feat1
+        if underscores2 < underscores1:
+            return feat2
+        
+        # Предпочитаем стандартные названия
+        feat1_lower = feat1.lower()
+        feat2_lower = feat2.lower()
+        
+        # sma/ema предпочтительнее close_rolling_mean
+        if 'sma_' in feat1_lower or 'ema_' in feat1_lower:
+            if 'rolling_mean' in feat2_lower:
+                return feat1
+        if 'sma_' in feat2_lower or 'ema_' in feat2_lower:
+            if 'rolling_mean' in feat1_lower:
+                return feat2
+        
+        # momentum предпочтительнее close_momentum
+        if feat1_lower == 'momentum' and 'close_momentum' in feat2_lower:
+            return feat1
+        if feat2_lower == 'momentum' and 'close_momentum' in feat1_lower:
+            return feat2
+        
+        # price_to предпочтительнее distance_to
+        if 'price_to' in feat1_lower and 'distance_to' in feat2_lower:
+            return feat1
+        if 'price_to' in feat2_lower and 'distance_to' in feat1_lower:
+            return feat2
+        
+        # По умолчанию выбираем более короткое
+        return feat1 if len(feat1) <= len(feat2) else feat2
     
     for feat1, feat2, corr in high_corr_pairs:
-        # Если одна из фичей уже помечена к удалению, пропускаем
+        # Пропускаем, если одна из фичей уже помечена к удалению
         if feat1 in features_to_remove or feat2 in features_to_remove:
             continue
         
-        # Выбираем фичу с более низким приоритетом для удаления
+        # Защищаем базовые OHLC цены - никогда не удаляем
+        if is_protected(feat1):
+            features_to_remove.add(feat2)
+            continue
+        if is_protected(feat2):
+            features_to_remove.add(feat1)
+            continue
+        
+        # Для полностью идентичных фичей (corr = 1.0) выбираем более простое имя
+        if abs(corr) >= 0.99999:
+            preferred = prefer_simple_name(feat1, feat2)
+            if preferred == feat1:
+                features_to_remove.add(feat2)
+            else:
+                features_to_remove.add(feat1)
+            continue
+        
+        # Для остальных случаев используем приоритеты
         priority1 = get_priority(feat1)
         priority2 = get_priority(feat2)
         
@@ -94,11 +185,12 @@ def select_features_to_remove(high_corr_pairs: List[Tuple[str, str, float]],
         elif priority2 > priority1:
             features_to_remove.add(feat2)
         else:
-            # Если приоритеты равны, удаляем более длинное имя (обычно более сложное)
-            if len(feat1) > len(feat2):
-                features_to_remove.add(feat1)
-            else:
+            # Если приоритеты равны, используем предпочтение простых имен
+            preferred = prefer_simple_name(feat1, feat2)
+            if preferred == feat1:
                 features_to_remove.add(feat2)
+            else:
+                features_to_remove.add(feat1)
     
     return features_to_remove
 
@@ -156,8 +248,8 @@ def main():
     parser.add_argument(
         '--input',
         type=str,
-        default='data/gold_train.csv',
-        help='Путь к файлу с данными (по умолчанию: data/gold_train.csv)'
+        default='workspace/prepared/features/gold_train.csv',
+        help='Путь к файлу с данными (по умолчанию: workspace/prepared/features/gold_train.csv)'
     )
     
     parser.add_argument(
@@ -182,8 +274,22 @@ def main():
     parser.add_argument(
         '--output',
         type=str,
-        default='data/gold_train_no_corr.csv',
-        help='Путь для сохранения данных без коррелированных фичей (по умолчанию: data/gold_train_no_corr.csv)'
+        default='workspace/prepared/features/gold_train_no_corr.csv',
+        help='Путь для сохранения данных без коррелированных фичей (по умолчанию: workspace/prepared/features/gold_train_no_corr.csv)'
+    )
+    
+    parser.add_argument(
+        '--save-tables',
+        action='store_true',
+        default=True,
+        help='Сохранить результаты анализа в таблицы CSV (по умолчанию: включено)'
+    )
+    
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default=None,
+        help='Директория для сохранения таблиц (по умолчанию: та же, что и входной файл)'
     )
     
     args = parser.parse_args()
@@ -208,7 +314,7 @@ def main():
     feature_columns = [
         col for col in df.columns 
         if not any(pattern in col for pattern in exclude_patterns)
-        and df[col].dtype in [np.number, 'float64', 'int64']
+        and pd.api.types.is_numeric_dtype(df[col])
     ]
     
     print(f"   Найдено {len(feature_columns)} фичей для анализа")
@@ -224,6 +330,14 @@ def main():
     else:
         print("   ✓ NaN значений не найдено")
     
+    # Определение директории для сохранения результатов
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = Path(args.input).parent
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
     # Анализ корреляции
     print(f"\n4. Анализ корреляции (порог: {args.threshold})...")
     high_corr_pairs = find_highly_correlated_pairs(df, feature_columns, args.threshold)
@@ -238,14 +352,35 @@ def main():
         
         if len(high_corr_pairs) > 20:
             print(f"   ... и еще {len(high_corr_pairs) - 20} пар")
+        
+        # Сохранение высококоррелированных пар в таблицу
+        if args.save_tables:
+            pairs_df = pd.DataFrame(high_corr_pairs, columns=['Feature_1', 'Feature_2', 'Correlation'])
+            pairs_df['Abs_Correlation'] = pairs_df['Correlation'].abs()
+            pairs_df = pairs_df.sort_values('Abs_Correlation', ascending=False)
+            pairs_path = output_dir / f'highly_correlated_pairs_threshold_{args.threshold:.2f}.csv'
+            pairs_df.to_csv(pairs_path, index=False)
+            print(f"\n   ✓ Таблица высококоррелированных пар сохранена: {pairs_path}")
     
     # Выбор фичей для удаления
+    features_to_remove = set()
     if args.remove and len(high_corr_pairs) > 0:
         print("\n5. Выбор фичей для удаления...")
+        print(f"   Защищенные фичи (никогда не удаляются): {', '.join(PROTECTED_FEATURES)}")
         features_to_remove = select_features_to_remove(high_corr_pairs, feature_columns)
         print(f"   Будет удалено {len(features_to_remove)} фичей:")
         for feat in sorted(features_to_remove):
             print(f"     - {feat}")
+        
+        # Сохранение списка фичей для удаления в таблицу
+        if args.save_tables:
+            remove_df = pd.DataFrame({
+                'Feature': sorted(features_to_remove),
+                'Reason': 'High correlation with other features'
+            })
+            remove_path = output_dir / f'features_to_remove_threshold_{args.threshold:.2f}.csv'
+            remove_df.to_csv(remove_path, index=False)
+            print(f"   ✓ Таблица фичей для удаления сохранена: {remove_path}")
         
         # Удаление фичей
         print(f"\n6. Удаление фичей из данных...")
@@ -257,12 +392,48 @@ def main():
         print(f"   ✓ Сохранено {len(df_cleaned)} строк, {len(df_cleaned.columns)} колонок")
         print(f"   Удалено {len(features_to_remove)} фичей")
         print(f"   Осталось {len(df_cleaned.columns) - len([c for c in df_cleaned.columns if any(p in c for p in exclude_patterns)])} фичей")
+    elif len(high_corr_pairs) > 0:
+        # Если не используется --remove, но есть коррелированные пары, все равно сохраним список потенциальных фичей для удаления
+        if args.save_tables:
+            print("\n5. Определение потенциальных фичей для удаления...")
+            print(f"   Защищенные фичи (никогда не удаляются): {', '.join(PROTECTED_FEATURES)}")
+            potential_remove = select_features_to_remove(high_corr_pairs, feature_columns)
+            if len(potential_remove) > 0:
+                remove_df = pd.DataFrame({
+                    'Feature': sorted(potential_remove),
+                    'Reason': 'High correlation with other features',
+                    'Note': 'Use --remove to actually remove these features'
+                })
+                remove_path = output_dir / f'potential_features_to_remove_threshold_{args.threshold:.2f}.csv'
+                remove_df.to_csv(remove_path, index=False)
+                print(f"   ✓ Таблица потенциальных фичей для удаления сохранена: {remove_path}")
     
     # Построение графика
     if args.plot:
-        print("\n8. Построение графика корреляционной матрицы...")
-        plot_path = args.input.replace('.csv', '_correlation_matrix.png')
-        plot_correlation_matrix(df, feature_columns[:50], save_path=plot_path)
+        step_num = "8" if args.remove and len(high_corr_pairs) > 0 else "6"
+        print(f"\n{step_num}. Построение графика корреляционной матрицы...")
+        plot_path = output_dir / f'{Path(args.input).stem}_correlation_matrix.png'
+        plot_correlation_matrix(df, feature_columns[:50], save_path=str(plot_path))
+    
+    # Сохранение статистики в таблицу
+    if args.save_tables:
+        stats_data = {
+            'Metric': [
+                'Total Features',
+                f'Highly Correlated Pairs (>{args.threshold})',
+                'Features to Remove',
+                'Features Remaining'
+            ],
+            'Value': [
+                len(feature_columns),
+                len(high_corr_pairs),
+                len(features_to_remove) if features_to_remove else 0,
+                len(feature_columns) - len(features_to_remove) if features_to_remove else len(feature_columns)
+            ]
+        }
+        stats_df = pd.DataFrame(stats_data)
+        stats_path = output_dir / f'correlation_analysis_stats_threshold_{args.threshold:.2f}.csv'
+        stats_df.to_csv(stats_path, index=False)
     
     # Статистика
     print("\n" + "=" * 80)
@@ -270,18 +441,23 @@ def main():
     print("=" * 80)
     print(f"Всего фичей: {len(feature_columns)}")
     print(f"Высококоррелированных пар (>{args.threshold}): {len(high_corr_pairs)}")
-    if args.remove and len(high_corr_pairs) > 0:
+    if features_to_remove:
         print(f"Удалено фичей: {len(features_to_remove)}")
         print(f"Осталось фичей: {len(feature_columns) - len(features_to_remove)}")
     print("=" * 80)
+    
+    if args.save_tables:
+        print(f"\n📊 Все таблицы сохранены в: {output_dir}")
     
     # Рекомендации
     if len(high_corr_pairs) > 0:
         print("\n💡 РЕКОМЕНДАЦИИ:")
         print("   1. Рассмотрите возможность удаления высококоррелированных фичей")
         print("   2. Запустите с флагом --remove для автоматического удаления")
-        print("   3. Проверьте результаты на тестовой выборке")
-        print("   4. Используйте --plot для визуализации корреляций")
+        print("   3. Базовые OHLC цены (open, high, low, close) защищены и не будут удалены")
+        print("   4. Приоритет отдается простым/коротким именам (sma_5 > close_rolling_mean_5)")
+        print("   5. Проверьте результаты на тестовой выборке")
+        print("   6. Используйте --plot для визуализации корреляций")
 
 if __name__ == '__main__':
     main()

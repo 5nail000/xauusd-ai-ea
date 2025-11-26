@@ -35,7 +35,7 @@ class TickDataLoader:
             secs = int(seconds % 60)
             return f"{hours}ч {minutes}м {secs}с"
     
-    def __init__(self, mt5_connection=None, use_cache: bool = True, cache_dir: str = 'data/ticks'):
+    def __init__(self, mt5_connection=None, use_cache: bool = True, cache_dir: str = 'workspace/raw_data/ticks'):
         """
         Инициализация загрузчика тиков
         

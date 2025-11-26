@@ -14,7 +14,7 @@ class MonitoringVisualizer:
     Создает визуализации для мониторинга производительности
     """
     
-    def __init__(self, output_dir: str = 'trading/monitoring_plots'):
+    def __init__(self, output_dir: str = 'workspace/results/monitoring'):
         """
         Args:
             output_dir: Директория для сохранения графиков

@@ -59,6 +59,9 @@ class Backtester:
             'confidence_reduced': 0
         }
         
+        # Отложенные сигналы отскоков
+        self.pending_bounce_signals: Dict = {}
+        
         # Загружаем модель
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self._load_model()
@@ -99,7 +102,7 @@ class Backtester:
             config = get_model_config(
                 model_type=self.model_type,
                 num_features=num_features,
-                num_classes=3
+                num_classes=5
             )
         
         model = create_model(config)
@@ -249,30 +252,118 @@ class Backtester:
             
             # Преобразуем класс в направление
             # 0 = неопределенность (удержание)
-            # 1 = пробой (покупка для восходящего пробоя, продажа для нисходящего)
-            # 2 = отскок (продажа для восходящего отскока, покупка для нисходящего)
+            # 1 = пробой вверх (BUY)
+            # 2 = пробой вниз (SELL)
+            # 3 = отскок вверх (BUY после падения) - отложенный вход
+            # 4 = отскок вниз (SELL после роста) - отложенный вход
             
             if predicted_class == 0:  # Неопределенность
                 return None
             
-            # Для пробоя и отскока определяем направление по тренду
-            # Упрощенная логика: смотрим на последние цены
-            if idx >= 10:
-                recent_prices = df['close'].iloc[idx-10:idx+1].values
-                trend = 1 if recent_prices[-1] > recent_prices[0] else -1
-            else:
-                trend = 1  # По умолчанию восходящий тренд
+            # Классы 1, 2 (пробой) - возвращаем сигнал сразу
+            if predicted_class == 1:  # Пробой вверх
+                return 1, float(confidence)
+            elif predicted_class == 2:  # Пробой вниз
+                return -1, float(confidence)
             
-            if predicted_class == 1:  # Пробой
-                direction = trend  # Пробой по направлению тренда
-            else:  # Отскок (класс 2)
-                direction = -trend  # Отскок против тренда
+            # Классы 3, 4 (отскок) - сохраняем в pending и возвращаем None
+            if predicted_class == 3:  # Отскок вверх
+                self.pending_bounce_signals[idx] = {
+                    'class': 3,
+                    'direction': 1,  # BUY
+                    'confidence': float(confidence),
+                    'price': df['close'].iloc[idx]
+                }
+                return None
+            elif predicted_class == 4:  # Отскок вниз
+                self.pending_bounce_signals[idx] = {
+                    'class': 4,
+                    'direction': -1,  # SELL
+                    'confidence': float(confidence),
+                    'price': df['close'].iloc[idx]
+                }
+                return None
             
-            return direction, float(confidence)
+            return None
         
         except Exception as e:
             # print(f"Ошибка при получении сигнала на индексе {idx}: {e}")
             return None
+    
+    def check_bounce_confirmation(self, df: pd.DataFrame, idx: int) -> Optional[tuple]:
+        """
+        Проверяет подтверждение отложенных отскоков по паттерну свечей
+        
+        Args:
+            df: DataFrame с данными
+            idx: Текущий индекс
+        
+        Returns:
+            Tuple (direction, confidence) или None
+            - direction: 1 для покупки, -1 для продажи
+            - confidence: уверенность сигнала
+        """
+        if not self.trading_config.bounce_confirmation_enabled:
+            return None
+        
+        confirmed_signals = []
+        periods = self.trading_config.bounce_confirmation_periods
+        min_reversal = self.trading_config.bounce_min_reversal_pips
+        
+        # Проверяем все отложенные сигналы
+        for signal_idx, signal_data in list(self.pending_bounce_signals.items()):
+            # Пропускаем слишком старые сигналы (старше 20 свечей)
+            if idx - signal_idx > 20:
+                self.pending_bounce_signals.pop(signal_idx)
+                continue
+            
+            # Проверяем подтверждение разворота
+            if signal_data['class'] == 3:  # Отскок вверх (после падения)
+                # Ищем минимум за последние N свечей, затем рост
+                if idx >= periods:
+                    lookback_start = max(signal_idx, idx - periods)
+                    recent_prices = df['close'].iloc[lookback_start:idx+1].values
+                    min_price = recent_prices.min()
+                    min_idx = np.argmin(recent_prices)
+                    current_price = df['close'].iloc[idx]
+                    
+                    # Проверяем, что после минимума произошел рост
+                    if min_idx < len(recent_prices) - 1:
+                        price_reversal = (current_price - min_price) * 100  # В пунктах
+                        if price_reversal >= min_reversal:
+                            confirmed_signals.append({
+                                'direction': 1,
+                                'confidence': signal_data['confidence'],
+                                'signal_idx': signal_idx
+                            })
+                            self.pending_bounce_signals.pop(signal_idx)
+            
+            elif signal_data['class'] == 4:  # Отскок вниз (после роста)
+                # Ищем максимум за последние N свечей, затем падение
+                if idx >= periods:
+                    lookback_start = max(signal_idx, idx - periods)
+                    recent_prices = df['close'].iloc[lookback_start:idx+1].values
+                    max_price = recent_prices.max()
+                    max_idx = np.argmax(recent_prices)
+                    current_price = df['close'].iloc[idx]
+                    
+                    # Проверяем, что после максимума произошло падение
+                    if max_idx < len(recent_prices) - 1:
+                        price_reversal = (max_price - current_price) * 100  # В пунктах
+                        if price_reversal >= min_reversal:
+                            confirmed_signals.append({
+                                'direction': -1,
+                                'confidence': signal_data['confidence'],
+                                'signal_idx': signal_idx
+                            })
+                            self.pending_bounce_signals.pop(signal_idx)
+        
+        # Возвращаем первый подтвержденный сигнал (или None)
+        if confirmed_signals:
+            signal = confirmed_signals[0]
+            return signal['direction'], signal['confidence']
+        
+        return None
     
     def backtest(self, df: pd.DataFrame, start_idx: int = 60, 
                  validate_features: bool = True) -> Dict:
@@ -391,7 +482,13 @@ class Backtester:
                         continue
             
             # Получаем сигнал
-            signal = self.get_signal(df, i)
+            # СНАЧАЛА проверяем подтверждение отложенных отскоков
+            bounce_signal = self.check_bounce_confirmation(df, i)
+            if bounce_signal is not None:
+                signal = bounce_signal
+            else:
+                # Затем получаем новые сигналы
+                signal = self.get_signal(df, i)
             
             # Обновляем детектор дрифта
             if self.enable_monitoring and self.drift_detector and signal is not None:

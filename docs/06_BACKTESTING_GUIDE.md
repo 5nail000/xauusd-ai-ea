@@ -108,14 +108,14 @@ trading_config = TradingConfig(
 
 # Создание бэктестера
 backtester = Backtester(
-    model_path='models/checkpoints/encoder_model.pth',
-    scaler_path='models/feature_scaler.pkl',
+    model_path='workspace/models/checkpoints/encoder_model.pth',
+    scaler_path='workspace/prepared/scalers/feature_scaler.pkl',
     model_type='encoder',
     trading_config=trading_config
 )
 
 # Загрузка данных
-test_df = pd.read_csv('data/gold_test.csv', index_col=0, parse_dates=True)
+test_df = pd.read_csv('workspace/prepared/features/gold_test.csv', index_col=0, parse_dates=True)
 
 # Запуск бэктестинга
 results = backtester.backtest(test_df, start_idx=60)

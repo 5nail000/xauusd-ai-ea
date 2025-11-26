@@ -21,10 +21,10 @@
 python prepare_gold_data.py --months 12 --no-ask
 
 # Это создаст файлы:
-# - data/gold_train.csv
-# - data/gold_val.csv  
-# - data/gold_test.csv
-# - data/gold_data_12months.csv
+# - workspace/prepared/features/gold_train.csv
+# - workspace/prepared/features/gold_val.csv  
+# - workspace/prepared/features/gold_test.csv
+# - workspace/prepared/features/gold_data_12months.csv
 ```
 
 ### 2. Упаковка данных для отправки
@@ -162,7 +162,7 @@ data/
 
 **Решение**: Это нормально на Paperspace! MT5 нужен только для подготовки данных на Windows. Для обучения он не требуется.
 
-### Ошибка: "File not found: data/gold_train.csv"
+### Ошибка: "File not found: workspace/prepared/features/gold_train.csv"
 
 **Решение**: Убедитесь, что:
 1. Архив распакован в правильную директорию
@@ -173,8 +173,8 @@ data/
 
 После успешного обучения на Paperspace:
 
-1. Скачайте обученную модель (`models/checkpoints/*.pth`)
-2. Скачайте scaler (`models/feature_scaler.pkl`)
+1. Скачайте обученную модель (`workspace/models/checkpoints/*.pth`)
+2. Скачайте scaler (`workspace/prepared/scalers/feature_scaler.pkl`)
 3. Используйте их на локальной машине для бэктестинга и торговли
 
 ## Полезные команды

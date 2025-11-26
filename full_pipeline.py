@@ -47,9 +47,9 @@ def run_command(command, description):
 def check_data_files():
     """Проверяет наличие подготовленных данных"""
     required_files = [
-        'data/gold_train.csv',
-        'data/gold_val.csv',
-        'data/gold_test.csv'
+        'workspace/prepared/features/gold_train.csv',
+        'workspace/prepared/features/gold_val.csv',
+        'workspace/prepared/features/gold_test.csv'
     ]
     
     all_exist = all(os.path.exists(f) for f in required_files)
@@ -65,8 +65,8 @@ def check_data_files():
 def check_model_files(model_type='encoder'):
     """Проверяет наличие обученных моделей"""
     required_files = [
-        f'models/checkpoints/{model_type}_model.pth',
-        f'models/feature_scaler_{model_type}.pkl'
+        f'workspace/models/checkpoints/{model_type}_model.pth',
+        f'workspace/prepared/scalers/feature_scaler_{model_type}.pkl'
     ]
     
     all_exist = all(os.path.exists(f) for f in required_files)
@@ -369,19 +369,19 @@ def main():
             )
             
             # Параметры модели
-            model_path = f'models/checkpoints/{args.model_type}_model.pth'
-            scaler_path = f'models/feature_scaler_{args.model_type}.pkl'
+            model_path = f'workspace/models/checkpoints/{args.model_type}_model.pth'
+            scaler_path = f'workspace/prepared/scalers/feature_scaler_{args.model_type}.pkl'
             
             # Проверяем наличие scaler
             if not os.path.exists(scaler_path):
-                scaler_path = 'models/feature_scaler.pkl'
+                scaler_path = 'workspace/prepared/scalers/feature_scaler.pkl'
                 if not os.path.exists(scaler_path):
                     print(f"❌ Ошибка: Scaler не найден!")
                     return 1
             
             # Загрузка тестовых данных
             print("\n1. Загрузка данных...")
-            test_df = pd.read_csv('data/gold_test.csv', index_col=0, parse_dates=True)
+            test_df = pd.read_csv('workspace/prepared/features/gold_test.csv', index_col=0, parse_dates=True)
             print(f"   Загружено {len(test_df)} свечей")
             
             # Создание бэктестера
@@ -429,9 +429,9 @@ def main():
     print("=" * 80)
     print("\nСозданные файлы:")
     print("\nДанные:")
-    print("  - data/gold_train.csv")
-    print("  - data/gold_val.csv")
-    print("  - data/gold_test.csv")
+    print("  - workspace/prepared/features/gold_train.csv")
+    print("  - workspace/prepared/features/gold_val.csv")
+    print("  - workspace/prepared/features/gold_test.csv")
     
     models_created = []
     if args.encoder_only or (not args.timeseries_only and not args.skip_train):
@@ -441,11 +441,11 @@ def main():
     
     for model_type in models_created:
         print(f"\n{model_type.upper()} модель:")
-        print(f"  - models/checkpoints/{model_type}_model.pth")
-        print(f"  - models/feature_scaler_{model_type}.pkl")
-        print(f"  - models/checkpoints/{model_type}_model_history.csv")
-        print(f"  - models/checkpoints/{model_type}_model_training_curves.png")
-        print(f"  - models/confusion_matrix_{model_type}.png")
+        print(f"  - workspace/models/checkpoints/{model_type}_model.pth")
+        print(f"  - workspace/prepared/scalers/feature_scaler_{model_type}.pkl")
+        print(f"  - workspace/models/metrics/{model_type}_model_history.csv")
+        print(f"  - workspace/models/metrics/{model_type}_model_training_curves.png")
+        print(f"  - workspace/models/metrics/confusion_matrix_{model_type}.png")
     
     if not args.skip_backtest:
         print("\nБэктестинг:")

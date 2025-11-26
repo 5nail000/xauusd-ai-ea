@@ -29,7 +29,7 @@ class FeatureEngineer:
     Класс для генерации всех фичей из сырых данных
     """
     
-    def __init__(self, config: FeatureConfig = None, cache_dir: str = 'data/features_cache'):
+    def __init__(self, config: FeatureConfig = None, cache_dir: str = 'workspace/raw_data/cache'):
         """
         Args:
             config: Конфигурация параметров фичей

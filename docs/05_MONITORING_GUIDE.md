@@ -57,12 +57,12 @@
 import pandas as pd
 
 # Загрузка из CSV
-history = pd.read_csv('models/checkpoints/encoder_model_history.csv')
+history = pd.read_csv('workspace/models/metrics/encoder_model_history.csv')
 
 # Или из pickle
 from models.callbacks import TrainingHistory
 history_obj = TrainingHistory()
-history_obj.load('models/checkpoints/encoder_model_history.pkl')
+history_obj.load('workspace/models/metrics/encoder_model_history.pkl')
 history_dict = history_obj.history
 ```
 
@@ -71,7 +71,7 @@ history_dict = history_obj.history
 ```python
 import matplotlib.pyplot as plt
 
-history = pd.read_csv('models/checkpoints/encoder_model_history.csv')
+history = pd.read_csv('workspace/models/metrics/encoder_model_history.csv')
 
 # Loss
 plt.figure(figsize=(12, 4))
@@ -99,7 +99,7 @@ plt.show()
 ### Анализ переобученности
 
 ```python
-history = pd.read_csv('models/checkpoints/encoder_model_history.csv')
+history = pd.read_csv('workspace/models/metrics/encoder_model_history.csv')
 
 # Вычисляем gap
 history['acc_gap'] = history['val_acc'] - history['train_acc']
@@ -133,7 +133,7 @@ else:
 from models.callbacks import TrainingHistory
 
 history = TrainingHistory()
-history.load('models/checkpoints/encoder_model_history.pkl')
+history.load('workspace/models/metrics/encoder_model_history.pkl')
 
 # Автоматический анализ
 analysis = history.analyze_overfitting()
@@ -213,8 +213,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Загрузка истории обеих моделей
-encoder_history = pd.read_csv('models/checkpoints/encoder_model_history.csv')
-timeseries_history = pd.read_csv('models/checkpoints/timeseries_model_history.csv')
+encoder_history = pd.read_csv('workspace/models/metrics/encoder_model_history.csv')
+timeseries_history = pd.read_csv('workspace/models/metrics/timeseries_model_history.csv')
 
 # Сравнение accuracy
 plt.figure(figsize=(12, 5))
@@ -243,10 +243,10 @@ plt.show()
 
 После обучения создаются:
 
-- `models/checkpoints/{model_type}_model_history.csv` - CSV с метриками
-- `models/checkpoints/{model_type}_model_history.pkl` - Pickle файл (для загрузки в Python)
-- `models/checkpoints/{model_type}_model_training_curves.png` - Графики обучения
-- `models/confusion_matrix_{model_type}.png` - Confusion matrix
+- `workspace/models/metrics/{model_type}_model_history.csv` - CSV с метриками
+- `workspace/models/metrics/{model_type}_model_history.pkl` - Pickle файл (для загрузки в Python)
+- `workspace/models/metrics/{model_type}_model_training_curves.png` - Графики обучения
+- `workspace/models/metrics/confusion_matrix_{model_type}.png` - Confusion matrix
 
 ## Советы
 

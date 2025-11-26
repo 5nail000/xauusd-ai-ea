@@ -399,7 +399,7 @@ def export_feature_documentation_for_model(model_type: str,
     Returns:
         Путь к сохраненной документации
     """
-    output_path = f'models/checkpoints/{model_type}_model_features_documentation'
+    output_path = f'workspace/models/checkpoints/{model_type}_model_features_documentation'
     
     documentation = create_feature_documentation(
         feature_columns=feature_columns,

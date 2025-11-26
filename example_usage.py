@@ -131,8 +131,8 @@ def main():
     print("Данные сохранены в data/processed_features.csv")
     
     # Сохранение scaler
-    scaler.save('models/feature_scaler.pkl')
-    print("Scaler сохранен в models/feature_scaler.pkl")
+    scaler.save('workspace/prepared/scalers/feature_scaler.pkl')
+    print("Scaler сохранен в workspace/prepared/scalers/feature_scaler.pkl")
     
     print("\n=== Готово! ===")
 

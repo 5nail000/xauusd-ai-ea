@@ -26,7 +26,7 @@ pip install tensorboard>=2.10.0
 Используйте скрипт для автоматического запуска TensorBoard:
 
 ```bash
-python scripts/start_tensorboard.py
+python utils/start_tensorboard.py
 ```
 
 Скрипт автоматически найдет последнюю директорию с логами в `workspace/models/logs/` и запустит TensorBoard.

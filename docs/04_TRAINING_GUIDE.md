@@ -34,9 +34,9 @@ python prepare_gold_data.py
 ```
 
 Это создаст:
-- `data/gold_train.csv` - обучающая выборка
-- `data/gold_val.csv` - валидационная выборка
-- `data/gold_test.csv` - тестовая выборка
+- `workspace/prepared/features/gold_train.csv` - обучающая выборка
+- `workspace/prepared/features/gold_val.csv` - валидационная выборка
+- `workspace/prepared/features/gold_test.csv` - тестовая выборка
 
 #### 2. Обучение моделей
 
@@ -143,21 +143,21 @@ config = get_model_config(
 
 После обучения автоматически создаются:
 
-1. **Модель**: `models/checkpoints/{model_type}_model.pth`
+1. **Модель**: `workspace/models/checkpoints/{model_type}_model.pth`
    - Содержит веса модели и конфигурацию
-2. **Scaler**: `models/feature_scaler_{model_type}.pkl`
+2. **Scaler**: `workspace/prepared/scalers/feature_scaler_{model_type}.pkl`
    - Отдельный scaler для каждого типа модели
    - **Включает метаданные**: список фичей, настройки подготовки, hash фичей
 3. **Документация по фичам**: ⭐ НОВОЕ
-   - `models/checkpoints/{model_type}_model_features_documentation.json` - структурированные данные
-   - `models/checkpoints/{model_type}_model_features_documentation.md` - удобная для чтения документация
+   - `workspace/models/checkpoints/{model_type}_model_features_documentation.json` - структурированные данные
+   - `workspace/models/checkpoints/{model_type}_model_features_documentation.md` - удобная для чтения документация
    - Содержит описание, формулу, источник и статистику для каждого фича
 4. **История обучения**:
-   - `models/checkpoints/{model_type}_model_history.pkl` - pickle файл
-   - `models/checkpoints/{model_type}_model_history.csv` - CSV с метриками по эпохам
-5. **Графики обучения**: `models/checkpoints/{model_type}_model_training_curves.png`
+   - `workspace/models/metrics/{model_type}_model_history.pkl` - pickle файл
+   - `workspace/models/metrics/{model_type}_model_history.csv` - CSV с метриками по эпохам
+5. **Графики обучения**: `workspace/models/metrics/{model_type}_model_training_curves.png`
    - Loss, Accuracy, Learning Rate по эпохам
-6. **Confusion Matrix**: `models/confusion_matrix_{model_type}.png`
+6. **Confusion Matrix**: `workspace/models/metrics/confusion_matrix_{model_type}.png`
 7. **Анализ переобученности**: выводится в терминал после обучения
 
 ## Использование обученной модели
@@ -171,12 +171,12 @@ from models.data_loader import SequenceGenerator
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 config = get_model_config('encoder', num_features=100, num_classes=3)
 model = create_model(config)
-model.load_state_dict(torch.load('models/checkpoints/encoder_model.pth', map_location=device))
+model.load_state_dict(torch.load('workspace/models/checkpoints/encoder_model.pth', map_location=device))
 model.eval()
 
 # Загрузка scaler
 seq_gen = SequenceGenerator(sequence_length=60)
-seq_gen.load_scaler('models/feature_scaler.pkl')
+seq_gen.load_scaler('workspace/prepared/scalers/feature_scaler.pkl')
 
 # Предсказание
 # (подготовьте данные и создайте последовательности)
@@ -253,7 +253,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Загрузка истории
-history = pd.read_csv('models/checkpoints/encoder_model_history.csv')
+history = pd.read_csv('workspace/models/metrics/encoder_model_history.csv')
 
 # Построение графиков
 plt.plot(history['epoch'], history['train_loss'], label='Train Loss')

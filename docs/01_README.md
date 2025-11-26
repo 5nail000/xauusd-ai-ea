@@ -127,8 +127,8 @@ df = preparator.prepare_full_dataset(symbol='XAUUSD', months=12)
 
 # Бэктестинг
 backtester = Backtester(
-    model_path='models/checkpoints/encoder_model.pth',
-    scaler_path='models/feature_scaler_encoder.pkl'
+    model_path='workspace/models/checkpoints/encoder_model.pth',
+    scaler_path='workspace/prepared/scalers/feature_scaler_encoder.pkl'
 )
 results = backtester.backtest(test_df)
 ```

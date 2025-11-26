@@ -12,23 +12,23 @@ def main():
         epilog="""
 Примеры использования:
   python validate_features.py                              # Валидация test данных
-  python validate_features.py --data data/gold_train.csv  # Валидация train данных
-  python validate_features.py --scaler models/feature_scaler_encoder.pkl
+  python validate_features.py --data workspace/prepared/features/gold_train.csv  # Валидация train данных
+  python validate_features.py --scaler workspace/prepared/scalers/feature_scaler_encoder.pkl
         """
     )
     
     parser.add_argument(
         '--data',
         type=str,
-        default='data/gold_test.csv',
-        help='Путь к CSV файлу с данными (по умолчанию: data/gold_test.csv)'
+        default='workspace/prepared/features/gold_test.csv',
+        help='Путь к CSV файлу с данными (по умолчанию: workspace/prepared/features/gold_test.csv)'
     )
     
     parser.add_argument(
         '--scaler',
         type=str,
-        default='models/feature_scaler_encoder.pkl',
-        help='Путь к scaler файлу (по умолчанию: models/feature_scaler_encoder.pkl)'
+        default='workspace/prepared/scalers/feature_scaler_encoder.pkl',
+        help='Путь к scaler файлу (по умолчанию: workspace/prepared/scalers/feature_scaler_encoder.pkl)'
     )
     
     parser.add_argument(

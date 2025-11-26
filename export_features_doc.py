@@ -20,7 +20,7 @@ def main():
   python export_features_doc.py --model-type timeseries
   
   # С указанием пути к scaler
-  python export_features_doc.py --scaler models/feature_scaler_encoder.pkl
+  python export_features_doc.py --scaler workspace/prepared/scalers/feature_scaler_encoder.pkl
         """
     )
     
@@ -49,9 +49,9 @@ def main():
     if args.scaler:
         scaler_path = args.scaler
     elif args.model_type:
-        scaler_path = f'models/feature_scaler_{args.model_type}.pkl'
+        scaler_path = f'workspace/prepared/scalers/feature_scaler_{args.model_type}.pkl'
     else:
-        scaler_path = 'models/feature_scaler_encoder.pkl'
+        scaler_path = 'workspace/prepared/scalers/feature_scaler_encoder.pkl'
     
     if not Path(scaler_path).exists():
         print(f"❌ Ошибка: Файл scaler не найден: {scaler_path}")
@@ -78,9 +78,9 @@ def main():
     if args.output:
         output_path = args.output
     elif args.model_type:
-        output_path = f'models/checkpoints/{args.model_type}_model_features_documentation'
+        output_path = f'workspace/models/checkpoints/{args.model_type}_model_features_documentation'
     else:
-        output_path = 'models/checkpoints/features_documentation'
+        output_path = 'workspace/models/checkpoints/features_documentation'
     
     # Создаем документацию
     print(f"\nСоздание документации...")

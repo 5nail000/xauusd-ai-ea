@@ -206,7 +206,7 @@ class ModelTrainer:
               val_loader: DataLoader,
               num_epochs: int = 100,
               early_stopping_patience: int = 10,
-              checkpoint_path: str = 'models/checkpoints/best_model.pth',
+              checkpoint_path: str = 'workspace/models/checkpoints/best_model.pth',
               save_history: bool = True):
         """
         Обучает модель

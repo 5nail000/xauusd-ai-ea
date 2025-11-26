@@ -49,9 +49,9 @@ def test_data_preparation():
         print(f"✓ Test: {len(test_df)} образцов")
         
         # Сохранение
-        train_df.to_csv('data/gold_train_test.csv', index=True)
-        val_df.to_csv('data/gold_val_test.csv', index=True)
-        test_df.to_csv('data/gold_test_test.csv', index=True)
+        train_df.to_csv('workspace/prepared/features/gold_train_test.csv', index=True)
+        val_df.to_csv('workspace/prepared/features/gold_val_test.csv', index=True)
+        test_df.to_csv('workspace/prepared/features/gold_test_test.csv', index=True)
         
         print("\n✓ Данные сохранены")
         return True
@@ -76,9 +76,9 @@ def test_model_training():
         
         # Загрузка данных
         print("\nЗагрузка данных...")
-        train_df = pd.read_csv('data/gold_train_test.csv', index_col=0, parse_dates=True)
-        val_df = pd.read_csv('data/gold_val_test.csv', index_col=0, parse_dates=True)
-        test_df = pd.read_csv('data/gold_test_test.csv', index_col=0, parse_dates=True)
+        train_df = pd.read_csv('workspace/prepared/features/gold_train_test.csv', index_col=0, parse_dates=True)
+        val_df = pd.read_csv('workspace/prepared/features/gold_val_test.csv', index_col=0, parse_dates=True)
+        test_df = pd.read_csv('workspace/prepared/features/gold_test_test.csv', index_col=0, parse_dates=True)
         
         print(f"✓ Загружено данных: train={len(train_df)}, val={len(val_df)}, test={len(test_df)}")
         
@@ -134,12 +134,12 @@ def test_model_training():
             val_loader=val_loader,
             num_epochs=5,  # Только 5 эпох для теста
             early_stopping_patience=3,
-            checkpoint_path='models/checkpoints/test_model.pth',
+            checkpoint_path='workspace/models/checkpoints/test_model.pth',
             save_history=True
         )
         
         # Сохранение scaler
-        seq_gen.save_scaler('models/feature_scaler_test.pkl')
+        seq_gen.save_scaler('workspace/prepared/scalers/feature_scaler_test.pkl')
         print("\n✓ Обучение завершено")
         return True
         
@@ -179,14 +179,14 @@ def test_backtesting():
         
         # Загрузка тестовых данных
         print("\nЗагрузка данных...")
-        test_df = pd.read_csv('data/gold_test_test.csv', index_col=0, parse_dates=True)
+        test_df = pd.read_csv('workspace/prepared/features/gold_test_test.csv', index_col=0, parse_dates=True)
         print(f"✓ Загружено {len(test_df)} свечей")
         
         # Создание бэктестера
         print("\nИнициализация бэктестера...")
         backtester = Backtester(
-            model_path='models/checkpoints/test_model.pth',
-            scaler_path='models/feature_scaler_test.pkl',
+            model_path='workspace/models/checkpoints/test_model.pth',
+            scaler_path='workspace/prepared/scalers/feature_scaler_test.pkl',
             model_type='encoder',
             trading_config=trading_config
         )

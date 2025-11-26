@@ -108,8 +108,8 @@ monitoring_config = MonitoringConfig(
 
 # Создаем бэктестер с мониторингом
 backtester = Backtester(
-    model_path='models/checkpoints/encoder_model.pth',
-    scaler_path='models/feature_scaler_encoder.pkl',
+    model_path='workspace/models/checkpoints/encoder_model.pth',
+    scaler_path='workspace/prepared/scalers/feature_scaler_encoder.pkl',
     model_type='encoder',
     monitoring_config=monitoring_config,
     enable_monitoring=True  # Включить мониторинг

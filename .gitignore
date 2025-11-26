@@ -34,7 +34,7 @@ ENV/
 *.swo
 *~
 
-# Data
+# Data (старые пути, оставлены для совместимости)
 data/ticks/*.pkl
 data/*.csv
 data/prepared/*.pkl

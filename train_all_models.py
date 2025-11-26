@@ -178,8 +178,8 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
     print(f"Модель сохранена: {checkpoint_path}")
     print(f"Scaler сохранен: {scaler_path}")
     print(f"Документация по фичам: {doc_path if 'doc_path' in locals() else 'N/A'}.json/.md")
-    print(f"История обучения: {checkpoint_path.replace('.pth', '_history.csv')}")
-    print(f"Графики обучения: {checkpoint_path.replace('.pth', '_training_curves.png')}")
+    print(f"История обучения: workspace/models/metrics/{model_type}_model_history.csv")
+    print(f"Графики обучения: workspace/models/metrics/{model_type}_model_training_curves.png")
     print("=" * 80)
     
     return results
@@ -239,6 +239,19 @@ def main():
         help='Терпение для early stopping (по умолчанию: 10)'
     )
     
+    parser.add_argument(
+        '--use-wandb',
+        action='store_true',
+        help='Использовать Weights & Biases для логирования'
+    )
+    
+    parser.add_argument(
+        '--wandb-project',
+        type=str,
+        default='xauusd-ai-ea',
+        help='Название проекта в W&B (по умолчанию: xauusd-ai-ea)'
+    )
+    
     args = parser.parse_args()
     
     print("\n" + "=" * 80)
@@ -249,6 +262,9 @@ def main():
     print(f"  Размер батча: {args.batch_size}")
     print(f"  Количество эпох: {args.epochs}")
     print(f"  Early stopping patience: {args.patience}")
+    print(f"  Weights & Biases: {'Включено' if args.use_wandb else 'Выключено'}")
+    if args.use_wandb:
+        print(f"  W&B проект: {args.wandb_project}")
     print("=" * 80)
     
     models_to_train = []
@@ -311,14 +327,14 @@ def main():
     print("\nСохраненные файлы:")
     for model_type in models_to_train:
         print(f"\n{model_type.upper()} модель:")
-        print(f"  - models/checkpoints/{model_type}_model.pth")
-        print(f"  - models/feature_scaler_{model_type}.pkl")
-        print(f"  - models/checkpoints/{model_type}_model_features_documentation.json")
-        print(f"  - models/checkpoints/{model_type}_model_features_documentation.md")
-        print(f"  - models/checkpoints/{model_type}_model_history.csv")
-        print(f"  - models/checkpoints/{model_type}_model_history.pkl")
-        print(f"  - models/checkpoints/{model_type}_model_training_curves.png")
-        print(f"  - models/confusion_matrix_{model_type}.png")
+        print(f"  - workspace/models/checkpoints/{model_type}_model.pth")
+        print(f"  - workspace/prepared/scalers/feature_scaler_{model_type}.pkl")
+        print(f"  - workspace/models/checkpoints/{model_type}_model_features_documentation.json")
+        print(f"  - workspace/models/checkpoints/{model_type}_model_features_documentation.md")
+        print(f"  - workspace/models/metrics/{model_type}_model_history.csv")
+        print(f"  - workspace/models/metrics/{model_type}_model_history.pkl")
+        print(f"  - workspace/models/metrics/{model_type}_model_training_curves.png")
+        print(f"  - workspace/models/metrics/confusion_matrix_{model_type}.png")
     print("=" * 80)
 
 if __name__ == '__main__':

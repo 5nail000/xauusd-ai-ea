@@ -36,7 +36,7 @@ class GoldDataPreparator:
         self.training_months = training_months
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.feature_engineer = FeatureEngineer(self.config)
+        self.feature_engineer = FeatureEngineer(self.config, cache_dir=str(self.cache_dir))
         self.target_generator = TargetGenerator(
             breakout_threshold=200.0,
             bounce_threshold=150.0,

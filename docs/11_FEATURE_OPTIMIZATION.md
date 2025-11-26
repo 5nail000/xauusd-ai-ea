@@ -34,7 +34,7 @@ python analyze_feature_correlation.py --remove
 
 ### Параметры скрипта
 
-- `--input` - путь к файлу с данными (по умолчанию: `data/gold_train.csv`)
+- `--input` - путь к файлу с данными (по умолчанию: `workspace/prepared/features/gold_train.csv`)
 - `--threshold` - порог корреляции для удаления (по умолчанию: 0.95)
 - `--remove` - автоматически удалить высококоррелированные фичи
 - `--plot` - построить график корреляционной матрицы
@@ -100,8 +100,8 @@ config = FeatureConfig(
 
 ```python
 backtester = Backtester(
-    model_path='models/checkpoints/encoder_model.pth',
-    scaler_path='models/feature_scaler_encoder.pkl'
+    model_path='workspace/models/checkpoints/encoder_model.pth',
+    scaler_path='workspace/prepared/scalers/feature_scaler_encoder.pkl'
 )
 backtester.anomaly_threshold = 2.5  # 2.5σ вместо 3σ
 ```
@@ -169,8 +169,8 @@ df = preparator.prepare_full_dataset(symbol='XAUUSD', months=12)
 from trading.backtester import Backtester
 
 backtester = Backtester(
-    model_path='models/checkpoints/encoder_model.pth',
-    scaler_path='models/feature_scaler_encoder.pkl'
+    model_path='workspace/models/checkpoints/encoder_model.pth',
+    scaler_path='workspace/prepared/scalers/feature_scaler_encoder.pkl'
 )
 
 # Бэктестинг с автоматическим мониторингом аномалий
@@ -232,8 +232,8 @@ print(backtester.anomaly_stats)
 
 ```python
 backtester = Backtester(
-    model_path='models/checkpoints/encoder_model.pth',
-    scaler_path='models/feature_scaler_encoder.pkl'
+    model_path='workspace/models/checkpoints/encoder_model.pth',
+    scaler_path='workspace/prepared/scalers/feature_scaler_encoder.pkl'
 )
 # Валидация происходит автоматически при вызове backtest()
 results = backtester.backtest(test_df)
@@ -248,10 +248,10 @@ results = backtester.backtest(test_df)
 python validate_features.py
 
 # Валидация train данных
-python validate_features.py --data data/gold_train.csv
+python validate_features.py --data workspace/prepared/features/gold_train.csv
 
 # С другим scaler
-python validate_features.py --scaler models/feature_scaler_timeseries.pkl
+python validate_features.py --scaler workspace/prepared/scalers/feature_scaler_timeseries.pkl
 ```
 
 #### Программная валидация
@@ -261,7 +261,7 @@ from utils.feature_validator import validate_dataframe_features, print_validatio
 
 result = validate_dataframe_features(
     df=test_df,
-    scaler_path='models/feature_scaler_encoder.pkl'
+    scaler_path='workspace/prepared/scalers/feature_scaler_encoder.pkl'
 )
 
 print_validation_report(result)
@@ -293,12 +293,12 @@ print_validation_report(result)
 
 ```python
 # Эксперимент 1: без удаления коррелированных
-scaler_path = 'models/feature_scaler_encoder_v1.pkl'
-model_path = 'models/checkpoints/encoder_model_v1.pth'
+scaler_path = 'workspace/prepared/scalers/feature_scaler_encoder_v1.pkl'
+model_path = 'workspace/models/checkpoints/encoder_model_v1.pth'
 
 # Эксперимент 2: с удалением коррелированных
-scaler_path = 'models/feature_scaler_encoder_v2_corr.pkl'
-model_path = 'models/checkpoints/encoder_model_v2_corr.pth'
+scaler_path = 'workspace/prepared/scalers/feature_scaler_encoder_v2_corr.pkl'
+model_path = 'workspace/models/checkpoints/encoder_model_v2_corr.pth'
 ```
 
 #### Вариант 2: Использование метаданных
@@ -308,7 +308,7 @@ model_path = 'models/checkpoints/encoder_model_v2_corr.pth'
 ```python
 from utils.feature_validator import load_scaler_metadata
 
-metadata = load_scaler_metadata('models/feature_scaler_encoder.pkl')
+metadata = load_scaler_metadata('workspace/prepared/scalers/feature_scaler_encoder.pkl')
 if metadata.get('preparation_config', {}).get('remove_correlated_features'):
     print("Эта модель обучена с удалением коррелированных фичей")
 ```
@@ -337,8 +337,8 @@ experiments/
 from utils.feature_validator import compare_scalers
 
 compare_scalers(
-    'models/feature_scaler_encoder_v1.pkl',
-    'models/feature_scaler_encoder_v2.pkl'
+    'workspace/prepared/scalers/feature_scaler_encoder_v1.pkl',
+    'workspace/prepared/scalers/feature_scaler_encoder_v2.pkl'
 )
 ```
 
@@ -348,8 +348,8 @@ compare_scalers(
 
 После обучения модели автоматически создается документация по всем фичам:
 
-- **JSON формат**: `models/checkpoints/{model_type}_model_features_documentation.json`
-- **Markdown формат**: `models/checkpoints/{model_type}_model_features_documentation.md`
+- **JSON формат**: `workspace/models/checkpoints/{model_type}_model_features_documentation.json`
+- **Markdown формат**: `workspace/models/checkpoints/{model_type}_model_features_documentation.md`
 
 ### Ручной экспорт
 
@@ -363,7 +363,7 @@ python export_features_doc.py --model-type encoder
 python export_features_doc.py --model-type timeseries
 
 # С указанием пути к scaler
-python export_features_doc.py --scaler models/feature_scaler_encoder.pkl
+python export_features_doc.py --scaler workspace/prepared/scalers/feature_scaler_encoder.pkl
 ```
 
 ### Что включает документация

@@ -77,10 +77,7 @@ class TickCache:
         loaded_count = 0
         error_count = 0
         
-        for i, date in enumerate(dates):
-            # Показываем прогресс каждые 10 дней или в начале/конце
-            if i % 10 == 0 or i == total_dates - 1:
-                print(f"   Загрузка тиков из кэша: {i+1}/{total_dates} дней (загружено: {loaded_count}, ошибок: {error_count})...", end='\r')
+        for date in dates:
             # Сначала пытаемся загрузить parquet (новый формат)
             file_path_parquet = self._get_tick_file_path(symbol, date, use_parquet=True)
             file_path_pickle = self._get_tick_file_path(symbol, date, use_parquet=False)
@@ -153,12 +150,8 @@ class TickCache:
                 except Exception as e:
                     error_count += 1
         
-        print()  # Новая строка после прогресса
-        
         if all_ticks:
             result = pd.concat(all_ticks).sort_index()
-            if loaded_count > 0 or error_count > 0:
-                print(f"   Загружено файлов: {loaded_count}, ошибок/пропущено: {error_count}")
             return result
         
         return None

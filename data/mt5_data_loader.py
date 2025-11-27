@@ -269,4 +269,82 @@ class MT5DataLoader:
         candles = candles.dropna(subset=['open', 'high', 'low', 'close'])
         
         return candles
+    
+    @staticmethod
+    def aggregate_timeframe_from_minutes(minute_df: pd.DataFrame, target_timeframe: str) -> pd.DataFrame:
+        """
+        Создает старший таймфрейм из минутных данных через агрегацию
+        
+        Args:
+            minute_df: DataFrame с минутными свечами (индекс - время, колонки: open, high, low, close, volume)
+            target_timeframe: Целевой таймфрейм ('M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN1')
+        
+        Returns:
+            DataFrame с агрегированными свечами для указанного таймфрейма
+        """
+        if minute_df.empty:
+            return pd.DataFrame()
+        
+        # Маппинг таймфреймов на pandas resample правила
+        timeframe_map = {
+            'M1': '1T',
+            'M5': '5T',
+            'M15': '15T',
+            'M30': '30T',
+            'H1': '1H',
+            'H4': '4H',
+            'D1': '1D',
+            'W1': '1W',
+            'MN1': '1MS'  # Месяц
+        }
+        
+        if target_timeframe not in timeframe_map:
+            raise ValueError(f"Неподдерживаемый таймфрейм: {target_timeframe}")
+        
+        rule = timeframe_map[target_timeframe]
+        
+        # Агрегация OHLC
+        # Open - первая цена периода
+        open_price = minute_df['open'].resample(rule).first()
+        # High - максимальная цена периода
+        high = minute_df['high'].resample(rule).max()
+        # Low - минимальная цена периода
+        low = minute_df['low'].resample(rule).min()
+        # Close - последняя цена периода
+        close = minute_df['close'].resample(rule).last()
+        
+        # Объем - сумма объемов всех минутных свечей в периоде
+        if 'volume' in minute_df.columns:
+            volume = minute_df['volume'].resample(rule).sum()
+        elif 'real_volume' in minute_df.columns:
+            volume = minute_df['real_volume'].resample(rule).sum()
+        else:
+            # Если объема нет, используем количество минутных свечей
+            volume = minute_df['close'].resample(rule).count()
+        
+        # Tick volume - количество минутных свечей
+        tick_volume = minute_df['close'].resample(rule).count()
+        
+        # Спред - средний спред (если есть)
+        spread = None
+        if 'spread' in minute_df.columns:
+            spread = minute_df['spread'].resample(rule).mean()
+        
+        # Создание DataFrame
+        aggregated = pd.DataFrame({
+            'open': open_price,
+            'high': high,
+            'low': low,
+            'close': close,
+            'volume': volume,
+            'tick_volume': tick_volume
+        })
+        
+        if spread is not None:
+            aggregated['spread'] = spread
+        
+        # Удаление строк с NaN
+        aggregated = aggregated.dropna(subset=['open', 'high', 'low', 'close'])
+        
+        return aggregated
 

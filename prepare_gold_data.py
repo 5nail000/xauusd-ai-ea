@@ -79,6 +79,12 @@ def main():
         help='Не спрашивать при наличии сохраненных данных (автоматически загружать)'
     )
     
+    parser.add_argument(
+        '--offline',
+        action='store_true',
+        help='Режим offline - работа только с кэшированными данными без подключения к MT5'
+    )
+    
     args = parser.parse_args()
     
     # Определяем период для отображения
@@ -102,6 +108,7 @@ def main():
     print(f"  Старшие таймфреймы: {'Нет' if args.no_higher_tf else 'Да'}")
     print(f"  Принудительная регенерация: {'Да' if args.force else 'Нет'}")
     print(f"  Использование кэша: {'Нет' if args.no_cache else 'Да'}")
+    print(f"  Режим offline: {'Да' if args.offline else 'Нет'}")
     print("=" * 60)
     
     # Конфигурация
@@ -110,7 +117,8 @@ def main():
     # Создаем подготовщик данных
     preparator = GoldDataPreparator(
         config=config,
-        training_months=args.months
+        training_months=args.months,
+        offline_mode=args.offline
     )
     
     # Подготавливаем полный датасет

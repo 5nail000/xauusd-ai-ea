@@ -116,6 +116,9 @@ def main():
   
   # С удалением коррелированных фичей и кастомным порогом
   python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
+  
+  # Режим offline (без подключения к MT5, только кэшированные данные)
+  python full_pipeline.py --offline --days 30
         """
     )
     
@@ -321,6 +324,8 @@ def main():
                 prepare_cmd.append('--force')
             if args.no_cache:
                 prepare_cmd.append('--no-cache')
+            if args.offline:
+                prepare_cmd.append('--offline')
             prepare_cmd.append('--no-ask')  # Не спрашивать при наличии данных
             
             if not run_command(prepare_cmd, "ЭТАП 1: Подготовка данных"):
@@ -333,53 +338,125 @@ def main():
                 print("ОПТИМИЗАЦИЯ ФИЧЕЙ: Удаление высококоррелированных")
                 print("=" * 80)
                 print(f"Порог корреляции: {args.correlation_threshold}")
-                print("Таблицы анализа будут сохранены в workspace/prepared/features/")
+                print("Стратегия: анализ на объединенном датасете (train+val+test)")
+                print("          для гарантии одинакового набора фичей во всех файлах")
                 
-                csv_files = [
-                    ('workspace/prepared/features/gold_train.csv', 'train'),
-                    ('workspace/prepared/features/gold_val.csv', 'val'),
-                    ('workspace/prepared/features/gold_test.csv', 'test')
-                ]
+                train_path = 'workspace/prepared/features/gold_train.csv'
+                val_path = 'workspace/prepared/features/gold_val.csv'
+                test_path = 'workspace/prepared/features/gold_test.csv'
                 
-                for csv_file, file_type in csv_files:
-                    if not os.path.exists(csv_file):
-                        print(f"⚠️  Файл {csv_file} не найден, пропускаем...")
-                        continue
-                    
-                    print(f"\nОбработка {file_type} данных...")
-                    temp_output = csv_file.replace('.csv', '_no_corr_temp.csv')
-                    
-                    # Запускаем analyze_feature_correlation.py
-                    analyze_cmd = [
-                        sys.executable,
-                        'analyze_feature_correlation.py',
-                        '--input', csv_file,
-                        '--output', temp_output,
-                        '--threshold', str(args.correlation_threshold),
-                        '--remove',
-                        '--save-tables'
-                    ]
-                    
-                    if run_command(analyze_cmd, f"Удаление коррелированных фичей из {file_type}"):
-                        # Заменяем оригинальный файл очищенной версией
-                        if os.path.exists(temp_output):
-                            # Создаем резервную копию оригинального файла
-                            backup_file = csv_file.replace('.csv', '_backup.csv')
-                            if os.path.exists(csv_file):
-                                shutil.copy2(csv_file, backup_file)
-                            
-                            # Заменяем оригинальный файл очищенной версией
-                            shutil.move(temp_output, csv_file)
-                            print(f"✓ Файл {csv_file} обновлен (коррелированные фичи удалены)")
-                            if os.path.exists(backup_file):
-                                print(f"  Резервная копия сохранена: {backup_file}")
+                # Проверяем наличие всех файлов
+                missing_files = []
+                for name, path in [('train', train_path), ('val', val_path), ('test', test_path)]:
+                    if not os.path.exists(path):
+                        missing_files.append((name, path))
+                
+                if missing_files:
+                    print(f"\n⚠️  Не найдены файлы:")
+                    for name, path in missing_files:
+                        print(f"   - {name}: {path}")
+                    print("   Пропускаем оптимизацию фичей...")
+                else:
+                    # Шаг 1: Анализ на объединенном датасете
+                    print("\nШАГ 1: Анализ корреляций на объединенном датасете...")
+                    try:
+                        from analyze_feature_correlation import analyze_combined_datasets
+                        import pandas as pd
+                        
+                        features_to_remove = analyze_combined_datasets(
+                            train_path=train_path,
+                            val_path=val_path,
+                            test_path=test_path,
+                            threshold=args.correlation_threshold
+                        )
+                        
+                        if not features_to_remove:
+                            print("\n✓ Высококоррелированных фичей не найдено. Пропускаем удаление.")
                         else:
-                            print(f"⚠️  Очищенный файл не создан для {file_type}")
-                    else:
-                        print(f"⚠️  Ошибка при обработке {file_type}, продолжаем...")
-                        # Удаляем временный файл, если он был создан
-                        if os.path.exists(temp_output):
-                            os.remove(temp_output)
+                            # Сохраняем список фичей для удаления
+                            features_dir = Path('workspace/prepared/features')
+                            features_dir.mkdir(parents=True, exist_ok=True)
+                            remove_list_path = features_dir / f'features_to_remove_threshold_{args.correlation_threshold:.2f}.csv'
+                            remove_df = pd.DataFrame({
+                                'Feature': sorted(features_to_remove),
+                                'Reason': 'High correlation with other features (analyzed on combined dataset)'
+                            })
+                            remove_df.to_csv(remove_list_path, index=False)
+                            print(f"\n✓ Список фичей для удаления сохранен: {remove_list_path}")
+                            
+                            # Шаг 2: Применяем удаление ко всем трем файлам
+                            print("\nШАГ 2: Применение удаления ко всем датасетам...")
+                            csv_files = [
+                                (train_path, 'train'),
+                                (val_path, 'val'),
+                                (test_path, 'test')
+                            ]
+                            
+                            for csv_file, file_type in csv_files:
+                                print(f"\nОбработка {file_type} данных...")
+                                
+                                # Загружаем данные
+                                df = pd.read_csv(csv_file, index_col=0, parse_dates=True)
+                                original_cols = len(df.columns)
+                                
+                                # Удаляем фичи
+                                df_cleaned = df.drop(columns=[col for col in features_to_remove if col in df.columns])
+                                removed_count = original_cols - len(df_cleaned.columns)
+                                
+                                # Создаем резервную копию
+                                backup_file = csv_file.replace('.csv', '_backup.csv')
+                                if os.path.exists(csv_file):
+                                    shutil.copy2(csv_file, backup_file)
+                                    print(f"  Резервная копия: {backup_file}")
+                                
+                                # Сохраняем очищенный файл
+                                df_cleaned.to_csv(csv_file)
+                                print(f"  ✓ Удалено {removed_count} фичей")
+                                print(f"  ✓ Осталось {len(df_cleaned.columns)} колонок (было {original_cols})")
+                            
+                            # Шаг 3: Создание документации по фичам
+                            print("\nШАГ 3: Создание документации по фичам...")
+                            try:
+                                # Загружаем train данные для получения списка фичей
+                                train_df = pd.read_csv(train_path, index_col=0, parse_dates=True)
+                                exclude_patterns = ['future_return', 'signal_class', 'signal_class_name', 'max_future_return']
+                                feature_columns = [
+                                    col for col in train_df.columns 
+                                    if not any(pattern in col for pattern in exclude_patterns)
+                                    and pd.api.types.is_numeric_dtype(train_df[col])
+                                ]
+                                
+                                # Создаем документацию
+                                from utils.feature_documentation import create_feature_documentation
+                                
+                                doc_output_path = features_dir / 'features_documentation_after_correlation_removal'
+                                documentation = create_feature_documentation(
+                                    feature_columns=feature_columns,
+                                    scaler_path=None,  # Scaler еще не создан на этом этапе
+                                    output_path=str(doc_output_path)
+                                )
+                                
+                                print(f"  ✓ Документация сохранена:")
+                                print(f"    - {doc_output_path}.json")
+                                print(f"    - {doc_output_path}.md")
+                                
+                            except Exception as e:
+                                print(f"  ⚠️  Ошибка при создании документации: {e}")
+                                import traceback
+                                traceback.print_exc()
+                            
+                            print("\n" + "=" * 80)
+                            print("✓ ОПТИМИЗАЦИЯ ФИЧЕЙ ЗАВЕРШЕНА")
+                            print("=" * 80)
+                            print(f"Удалено фичей: {len(features_to_remove)}")
+                            print(f"Список сохранен: {remove_list_path}")
+                            print(f"Резервные копии: *_backup.csv")
+                            
+                    except Exception as e:
+                        print(f"\n❌ Ошибка при анализе корреляций: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        print("   Продолжаем без оптимизации фичей...")
     else:
         print("\n⏭️  Пропуск этапа подготовки данных")
         if not check_data_files():

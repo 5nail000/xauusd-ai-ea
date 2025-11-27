@@ -35,7 +35,7 @@ class TickDataLoader:
             secs = int(seconds % 60)
             return f"{hours}ч {minutes}м {secs}с"
     
-    def __init__(self, mt5_connection=None, use_cache: bool = True, cache_dir: str = 'workspace/raw_data/ticks'):
+    def __init__(self, mt5_connection=None, use_cache: bool = True, cache_dir: str = 'workspace/raw_data/ticks', offline_mode: bool = False):
         """
         Инициализация загрузчика тиков
         
@@ -43,16 +43,22 @@ class TickDataLoader:
             mt5_connection: Существующее подключение MT5 (опционально)
             use_cache: Использовать кэш тиков
             cache_dir: Директория для кэша
+            offline_mode: Режим offline - работа только с кэшированными данными без подключения к MT5
         """
         self.mt5_connection = mt5_connection
         self.connected = False
         self.use_cache = use_cache
+        self.offline_mode = offline_mode
         self.cache = TickCache(cache_dir) if use_cache else None
         self.cache_dir = Path(cache_dir)
         self.default_lookback_days = 540  # 1.5 года в днях
     
     def _ensure_connected(self):
         """Убеждается, что MT5 подключен"""
+        if self.offline_mode:
+            # В offline режиме не подключаемся к MT5
+            return
+        
         if not self.connected:
             # Если передан существующий объект подключения, проверяем его
             if self.mt5_connection is not None:
@@ -88,6 +94,10 @@ class TickDataLoader:
             cached_ticks = self.cache.get_cached_ticks(symbol, start_time, end_time)
             if cached_ticks is not None and not cached_ticks.empty:
                 return cached_ticks
+        
+        # В offline режиме возвращаем пустой DataFrame, если данных нет в кэше
+        if self.offline_mode:
+            return pd.DataFrame()
         
         # Загружаем из MT5
         self._ensure_connected()

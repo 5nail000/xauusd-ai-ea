@@ -159,21 +159,44 @@ python analyze_feature_correlation.py --remove --threshold 0.95
 python train_all_models.py
 ```
 
-### Автоматическое удаление в pipeline
+### Автоматическое удаление в full_pipeline.py
 
-```python
-from config.feature_config import FeatureConfig
-from data.gold_data_prep import GoldDataPreparator
+Для автоматизации процесса удаления высококоррелированных фичей можно использовать `full_pipeline.py`:
 
-# Конфигурация с автоматическим удалением
-config = FeatureConfig(
-    remove_correlated_features=True,
-    correlation_threshold=0.95
-)
+```bash
+# Автоматическое удаление с порогом 0.95 (по умолчанию)
+python full_pipeline.py --months 12 --remove-correlated
 
-preparator = GoldDataPreparator(config=config, training_months=12)
-df = preparator.prepare_full_dataset(symbol='XAUUSD', months=12)
+# С настройкой порога корреляции
+python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
 ```
+
+#### Как это работает
+
+**Важно**: Анализ корреляций выполняется на **объединенном датасете** (train+val+test), что гарантирует:
+- ✅ **Одинаковый набор фичей** во всех трех файлах
+- ✅ **Консистентность данных** для обучения и валидации
+- ✅ **Отсутствие ошибок** при загрузке данных в модель
+
+**Процесс автоматизации:**
+
+1. **Анализ на объединенном датасете**
+   - Все три файла (train, val, test) объединяются для анализа
+   - Находятся высококоррелированные пары фичей
+   - Определяется список фичей для удаления
+
+2. **Применение удаления**
+   - Одинаковый список фичей удаляется из всех трех файлов
+   - Создаются резервные копии оригинальных файлов (`*_backup.csv`)
+
+3. **Сохранение результатов**
+   - Список удаленных фичей: `workspace/prepared/features/features_to_remove_threshold_X.XX.csv`
+   - Таблицы анализа корреляций: `workspace/prepared/features/highly_correlated_pairs_threshold_X.XX.csv`
+   - Статистика анализа: `workspace/prepared/features/correlation_analysis_stats_threshold_X.XX.csv`
+
+4. **Создание документации**
+   - Автоматически создается документация по оставшимся фичам
+   - Сохраняется в `workspace/prepared/features/features_documentation_after_correlation_removal.json/.md`
 
 ### Мониторинг аномалий в бэктестинге
 

@@ -232,6 +232,86 @@ def plot_correlation_matrix(df: pd.DataFrame,
     
     plt.close()
 
+def analyze_combined_datasets(train_path: str, val_path: str, test_path: str,
+                              threshold: float = 0.95) -> Set[str]:
+    """
+    Анализирует корреляции на объединенном датасете (train+val+test)
+    и возвращает список фичей для удаления
+    
+    Args:
+        train_path: Путь к train CSV
+        val_path: Путь к val CSV
+        test_path: Путь к test CSV
+        threshold: Порог корреляции
+    
+    Returns:
+        Множество фичей для удаления
+    """
+    print("=" * 80)
+    print("АНАЛИЗ КОРРЕЛЯЦИИ НА ОБЪЕДИНЕННОМ ДАТАСЕТЕ")
+    print("=" * 80)
+    
+    # Загружаем все три датасета
+    datasets = {}
+    for name, path in [('train', train_path), ('val', val_path), ('test', test_path)]:
+        if not Path(path).exists():
+            print(f"⚠️  Файл {path} не найден, пропускаем...")
+            continue
+        print(f"\nЗагрузка {name} данных из {path}...")
+        datasets[name] = pd.read_csv(path, index_col=0, parse_dates=True)
+        print(f"   Загружено {len(datasets[name])} строк, {len(datasets[name].columns)} колонок")
+    
+    if not datasets:
+        print("❌ Ошибка: Не найдено ни одного датасета для анализа")
+        return set()
+    
+    # Объединяем все датасеты
+    print("\nОбъединение датасетов для анализа...")
+    combined_df = pd.concat(datasets.values(), ignore_index=False)
+    print(f"   Объединенный датасет: {len(combined_df)} строк, {len(combined_df.columns)} колонок")
+    
+    # Выбор фичей (исключаем целевые переменные)
+    exclude_patterns = ['future_return', 'signal_class', 'signal_class_name', 'max_future_return']
+    feature_columns = [
+        col for col in combined_df.columns 
+        if not any(pattern in col for pattern in exclude_patterns)
+        and pd.api.types.is_numeric_dtype(combined_df[col])
+    ]
+    
+    print(f"   Найдено {len(feature_columns)} фичей для анализа")
+    
+    # Проверка на NaN
+    print("\nПроверка данных...")
+    nan_counts = combined_df[feature_columns].isna().sum()
+    cols_with_nan = nan_counts[nan_counts > 0]
+    if len(cols_with_nan) > 0:
+        print(f"   ⚠️  Найдено {len(cols_with_nan)} фичей с NaN значениями")
+        print(f"   Заполняем NaN медианой...")
+        combined_df[feature_columns] = combined_df[feature_columns].fillna(combined_df[feature_columns].median())
+    else:
+        print("   ✓ NaN значений не найдено")
+    
+    # Анализ корреляции на объединенном датасете
+    print(f"\nАнализ корреляции на объединенном датасете (порог: {threshold})...")
+    high_corr_pairs = find_highly_correlated_pairs(combined_df, feature_columns, threshold)
+    
+    if len(high_corr_pairs) == 0:
+        print(f"   ✓ Высококоррелированных пар (>{threshold}) не найдено")
+        return set()
+    
+    print(f"   Найдено {len(high_corr_pairs)} высококоррелированных пар")
+    
+    # Выбор фичей для удаления
+    print("\nВыбор фичей для удаления...")
+    print(f"   Защищенные фичи (никогда не удаляются): {', '.join(PROTECTED_FEATURES)}")
+    features_to_remove = select_features_to_remove(high_corr_pairs, feature_columns)
+    
+    print(f"\n✓ Будет удалено {len(features_to_remove)} фичей из всех датасетов:")
+    for feat in sorted(features_to_remove):
+        print(f"     - {feat}")
+    
+    return features_to_remove
+
 def main():
     parser = argparse.ArgumentParser(
         description='Анализ корреляции фичей и удаление высококоррелированных',
@@ -290,6 +370,13 @@ def main():
         type=str,
         default=None,
         help='Директория для сохранения таблиц (по умолчанию: та же, что и входной файл)'
+    )
+    
+    parser.add_argument(
+        '--features-to-remove',
+        type=str,
+        default=None,
+        help='Путь к файлу со списком фичей для удаления (CSV с колонкой Feature)'
     )
     
     args = parser.parse_args()
@@ -364,7 +451,19 @@ def main():
     
     # Выбор фичей для удаления
     features_to_remove = set()
-    if args.remove and len(high_corr_pairs) > 0:
+    
+    # Если указан файл со списком фичей для удаления, загружаем его
+    if args.features_to_remove and Path(args.features_to_remove).exists():
+        print("\n5. Загрузка списка фичей для удаления из файла...")
+        remove_list_df = pd.read_csv(args.features_to_remove)
+        if 'Feature' in remove_list_df.columns:
+            features_to_remove = set(remove_list_df['Feature'].tolist())
+            print(f"   Загружено {len(features_to_remove)} фичей для удаления")
+        else:
+            print("   ⚠️  В файле не найдена колонка 'Feature', используем анализ корреляции")
+            args.features_to_remove = None
+    
+    if args.remove and len(high_corr_pairs) > 0 and not features_to_remove:
         print("\n5. Выбор фичей для удаления...")
         print(f"   Защищенные фичи (никогда не удаляются): {', '.join(PROTECTED_FEATURES)}")
         features_to_remove = select_features_to_remove(high_corr_pairs, feature_columns)

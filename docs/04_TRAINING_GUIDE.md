@@ -18,6 +18,8 @@ python full_pipeline.py --months 12
 python full_pipeline.py --months 12 --encoder-only --epochs 50
 
 # С удалением высококоррелированных фичей
+# Примечание: анализ выполняется на объединенном датасете (train+val+test)
+# для гарантии одинакового набора фичей во всех файлах
 python full_pipeline.py --months 12 --remove-correlated
 
 # С кастомным порогом корреляции

@@ -171,12 +171,43 @@ python prepare_gold_data.py -m 12 --no-ask --force
 
 **Все параметры:**
 - `-m, --months` - количество месяцев данных (по умолчанию: 6)
+- `-d, --days` - количество дней данных (приоритет над --months)
 - `--symbol` - торговый символ (по умолчанию: XAUUSD)
 - `--no-ticks` - не загружать тиковые данные
 - `--no-higher-tf` - не загружать старшие таймфреймы
 - `--force` - принудительно регенерировать данные (игнорировать кэш)
 - `--no-cache` - не использовать кэш (не сохранять и не загружать)
 - `--no-ask` - не спрашивать при наличии сохраненных данных (автоматически загружать)
+- `--offline` - режим offline - работа только с кэшированными данными без подключения к MT5
+
+### Режим offline (без подключения к MT5)
+
+Для работы на Linux машинах или без доступа к MT5 можно использовать режим offline:
+
+```bash
+# Подготовка данных в offline режиме (только из кэша)
+python prepare_gold_data.py --offline --days 30
+
+# Полный цикл в offline режиме
+python full_pipeline.py --offline --days 30
+```
+
+**Требования для offline режима:**
+- Тики должны быть загружены в `workspace/raw_data/ticks/`
+- Данные должны покрывать требуемый период
+- MT5 не требуется (можно запускать на Linux)
+
+**Как это работает:**
+1. Загружает тики из кэша `workspace/raw_data/ticks/`
+2. Создает минутные свечи из тиков
+3. Создает старшие таймфреймы через агрегацию из минутных данных
+4. Генерирует фичи и целевые переменные
+
+**Преимущества:**
+- ✅ Работа на Linux без MT5
+- ✅ Использование только кэшированных данных
+- ✅ Старшие таймфреймы создаются автоматически из минутных данных
+- ✅ Полная совместимость с обычным режимом
 
 ### Программное использование
 
@@ -184,11 +215,20 @@ python prepare_gold_data.py -m 12 --no-ask --force
 from data.gold_data_prep import GoldDataPreparator
 from data.data_splitter import DataSplitter
 
-# Подготовка данных
+# Подготовка данных (обычный режим)
 preparator = GoldDataPreparator(training_months=6)
 df = preparator.prepare_full_dataset(
     symbol='XAUUSD',
     months=6,
+    load_ticks=True,
+    load_higher_tf=True
+)
+
+# Подготовка данных (offline режим)
+preparator_offline = GoldDataPreparator(training_months=6, offline_mode=True)
+df = preparator_offline.prepare_full_dataset(
+    symbol='XAUUSD',
+    days=30,
     load_ticks=True,
     load_higher_tf=True
 )

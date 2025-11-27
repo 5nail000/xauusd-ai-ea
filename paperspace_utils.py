@@ -1,5 +1,5 @@
 """
-Утилиты для работы с Paperspace: загрузка данных для обучения и скачивание результатов
+Утилиты для работы с Paperspace и Hugging Face: загрузка данных для обучения и скачивание результатов
 """
 import os
 import tarfile
@@ -9,6 +9,14 @@ from datetime import datetime
 import subprocess
 import sys
 from typing import Optional, List
+import shutil
+
+try:
+    from huggingface_hub import HfApi, upload_folder, snapshot_download
+    HF_AVAILABLE = True
+except ImportError:
+    HF_AVAILABLE = False
+    print("⚠️  huggingface_hub не установлен. Установите: pip install huggingface_hub")
 
 
 def get_directory_size(path: Path) -> int:
@@ -376,21 +384,307 @@ class PaperspaceDownloader:
             return False
 
 
+class HuggingFaceUploader:
+    """Класс для загрузки данных на Hugging Face Hub"""
+    
+    def __init__(self, repo_id: str, token: Optional[str] = None):
+        """
+        Args:
+            repo_id: ID репозитория на Hugging Face (например, 'username/dataset-name')
+            token: Hugging Face токен (если None, используется из переменной окружения HF_TOKEN)
+        """
+        if not HF_AVAILABLE:
+            raise ImportError("huggingface_hub не установлен. Установите: pip install huggingface_hub")
+        
+        self.repo_id = repo_id
+        self.api = HfApi(token=token)
+        self.token = token or os.getenv('HF_TOKEN')
+        
+        if not self.token:
+            print("⚠️  Предупреждение: HF_TOKEN не установлен. Может потребоваться авторизация.")
+    
+    def upload_ticks(self, ticks_dir: str = 'workspace/raw_data/ticks', 
+                     commit_message: str = "Upload tick data") -> bool:
+        """
+        Загружает тиковые данные на Hugging Face
+        
+        Args:
+            ticks_dir: Директория с тиковыми данными
+            commit_message: Сообщение коммита
+        """
+        print("=" * 60)
+        print("Загрузка тиковых данных на Hugging Face")
+        print("=" * 60)
+        
+        ticks_path = Path(ticks_dir)
+        if not ticks_path.exists():
+            print(f"❌ Директория {ticks_dir} не найдена!")
+            return False
+        
+        size = get_directory_size(ticks_path)
+        print(f"📊 Размер тиковых данных: {format_size(size)}")
+        print(f"📁 Репозиторий: {self.repo_id}")
+        print(f"📂 Директория: {ticks_dir}")
+        
+        try:
+            # Создаем временную директорию для загрузки
+            temp_dir = Path('temp_hf_upload')
+            temp_ticks_dir = temp_dir / 'ticks'
+            temp_ticks_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Копируем тики во временную директорию
+            print(f"\nКопирование данных...")
+            shutil.copytree(ticks_path, temp_ticks_dir, dirs_exist_ok=True)
+            
+            # Загружаем на Hugging Face
+            print(f"\nЗагрузка на Hugging Face...")
+            upload_folder(
+                folder_path=str(temp_dir),
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                token=self.token,
+                commit_message=commit_message
+            )
+            
+            # Удаляем временную директорию
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            print(f"\n✓ Тиковые данные успешно загружены на Hugging Face!")
+            print(f"  Репозиторий: https://huggingface.co/datasets/{self.repo_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при загрузке: {e}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False
+    
+    def upload_training_data(self, 
+                             include_scalers: bool = True,
+                             include_cache: bool = False,
+                             commit_message: str = "Upload training data") -> bool:
+        """
+        Загружает данные для обучения на Hugging Face (без тиков)
+        
+        Args:
+            include_scalers: Включать ли scalers
+            include_cache: Включать ли кэши
+            commit_message: Сообщение коммита
+        """
+        print("=" * 60)
+        print("Загрузка данных для обучения на Hugging Face")
+        print("=" * 60)
+        
+        paths_to_include = []
+        
+        # CSV файлы для обучения (обязательно)
+        csv_files = [
+            'workspace/prepared/features/gold_train.csv',
+            'workspace/prepared/features/gold_val.csv',
+            'workspace/prepared/features/gold_test.csv'
+        ]
+        
+        for csv_file in csv_files:
+            csv_path = Path(csv_file)
+            if csv_path.exists():
+                paths_to_include.append(csv_file)
+                size = csv_path.stat().st_size
+                print(f"✓ Включен: {csv_file} ({format_size(size)})")
+            else:
+                print(f"⚠ Предупреждение: {csv_file} не найден")
+        
+        # Scalers (опционально)
+        if include_scalers:
+            scalers_dir = Path('workspace/prepared/scalers')
+            if scalers_dir.exists():
+                size = get_directory_size(scalers_dir)
+                paths_to_include.append(str(scalers_dir))
+                print(f"✓ Включена директория: {scalers_dir} ({format_size(size)})")
+        
+        # Кэши (опционально)
+        if include_cache:
+            cache_dir = Path('workspace/raw_data/cache')
+            if cache_dir.exists():
+                size = get_directory_size(cache_dir)
+                paths_to_include.append(str(cache_dir))
+                print(f"✓ Включена директория: {cache_dir} ({format_size(size)})")
+        
+        if not paths_to_include:
+            print("❌ Нет данных для загрузки!")
+            return False
+        
+        print(f"\n📁 Репозиторий: {self.repo_id}")
+        
+        try:
+            # Создаем временную директорию для загрузки
+            temp_dir = Path('temp_hf_upload')
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Копируем файлы во временную директорию с сохранением структуры
+            print(f"\nПодготовка данных...")
+            for path_str in paths_to_include:
+                path = Path(path_str)
+                if path.exists():
+                    # Сохраняем структуру директорий
+                    rel_path = path.relative_to(Path('workspace').parent)
+                    dest_path = temp_dir / rel_path
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    if path.is_file():
+                        shutil.copy2(path, dest_path)
+                    else:
+                        shutil.copytree(path, dest_path, dirs_exist_ok=True)
+                    print(f"  Скопировано: {path_str}")
+            
+            # Загружаем на Hugging Face
+            print(f"\nЗагрузка на Hugging Face...")
+            upload_folder(
+                folder_path=str(temp_dir),
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                token=self.token,
+                commit_message=commit_message
+            )
+            
+            # Удаляем временную директорию
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            print(f"\n✓ Данные для обучения успешно загружены на Hugging Face!")
+            print(f"  Репозиторий: https://huggingface.co/datasets/{self.repo_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при загрузке: {e}")
+            import traceback
+            traceback.print_exc()
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False
+
+
+class HuggingFaceDownloader:
+    """Класс для скачивания данных с Hugging Face Hub"""
+    
+    def __init__(self, repo_id: str, token: Optional[str] = None):
+        """
+        Args:
+            repo_id: ID репозитория на Hugging Face (например, 'username/dataset-name')
+            token: Hugging Face токен (если None, используется из переменной окружения HF_TOKEN)
+        """
+        if not HF_AVAILABLE:
+            raise ImportError("huggingface_hub не установлен. Установите: pip install huggingface_hub")
+        
+        self.repo_id = repo_id
+        self.api = HfApi(token=token)
+        self.token = token or os.getenv('HF_TOKEN')
+    
+    def download_ticks(self, local_dir: str = 'workspace/raw_data/ticks') -> bool:
+        """
+        Скачивает тиковые данные с Hugging Face
+        
+        Args:
+            local_dir: Локальная директория для сохранения
+        """
+        print("=" * 60)
+        print("Скачивание тиковых данных с Hugging Face")
+        print("=" * 60)
+        
+        print(f"📁 Репозиторий: {self.repo_id}")
+        print(f"📂 Локальная директория: {local_dir}")
+        
+        try:
+            local_path = Path(local_dir)
+            local_path.mkdir(parents=True, exist_ok=True)
+            
+            # Скачиваем данные
+            print(f"\nСкачивание данных...")
+            downloaded_path = snapshot_download(
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                local_dir=str(local_path),
+                token=self.token
+            )
+            
+            # Если данные скачались в поддиректорию ticks, перемещаем их
+            downloaded_path = Path(downloaded_path)
+            ticks_subdir = downloaded_path / 'ticks'
+            if ticks_subdir.exists() and ticks_subdir.is_dir():
+                # Данные в поддиректории ticks, перемещаем содержимое
+                print(f"  Перемещение данных из поддиректории...")
+                for item in ticks_subdir.iterdir():
+                    dest = local_path / item.name
+                    if item.is_file():
+                        shutil.copy2(item, dest)
+                    else:
+                        if dest.exists():
+                            shutil.rmtree(dest)
+                        shutil.copytree(item, dest)
+            
+            print(f"\n✓ Тиковые данные успешно скачаны!")
+            print(f"  Локальная директория: {local_dir}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при скачивании: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def download_training_data(self, local_dir: str = 'workspace') -> bool:
+        """
+        Скачивает данные для обучения с Hugging Face
+        
+        Args:
+            local_dir: Локальная директория для сохранения
+        """
+        print("=" * 60)
+        print("Скачивание данных для обучения с Hugging Face")
+        print("=" * 60)
+        
+        print(f"📁 Репозиторий: {self.repo_id}")
+        print(f"📂 Локальная директория: {local_dir}")
+        
+        try:
+            local_path = Path(local_dir)
+            local_path.mkdir(parents=True, exist_ok=True)
+            
+            # Скачиваем данные
+            print(f"\nСкачивание данных...")
+            snapshot_download(
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                local_dir=str(local_path),
+                token=self.token
+            )
+            
+            print(f"\n✓ Данные для обучения успешно скачаны!")
+            print(f"  Локальная директория: {local_dir}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при скачивании: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description='Утилиты для работы с Paperspace',
+        description='Утилиты для работы с Paperspace и Hugging Face',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Примеры использования:
 
-Загрузка данных для обучения:
+Paperspace:
   python paperspace_utils.py upload-training --host paperspace.com --path /storage/
   python paperspace_utils.py create-training-archive --output training_data.tar.gz
-
-Скачивание результатов:
   python paperspace_utils.py download-results --host paperspace.com --path /storage/results.tar.gz
   python paperspace_utils.py create-results-archive --output results.tar.gz
   python paperspace_utils.py list-remote-files --host paperspace.com --path /storage/
+
+Hugging Face:
+  python paperspace_utils.py hf-upload-ticks --repo-id username/dataset-name
+  python paperspace_utils.py hf-download-ticks --repo-id username/dataset-name
+  python paperspace_utils.py hf-upload-training --repo-id username/dataset-name
+  python paperspace_utils.py hf-download-training --repo-id username/dataset-name
         """
     )
     
@@ -435,6 +729,34 @@ def main():
     list_parser.add_argument('--path', type=str, default='/storage/', help='Путь на Paperspace')
     list_parser.add_argument('--user', type=str, default=None, help='Пользователь')
     
+    # Hugging Face: Upload ticks
+    hf_upload_ticks_parser = subparsers.add_parser('hf-upload-ticks', help='Загрузить тики на Hugging Face')
+    hf_upload_ticks_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_upload_ticks_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_upload_ticks_parser.add_argument('--ticks-dir', type=str, default='workspace/raw_data/ticks', help='Директория с тиками')
+    hf_upload_ticks_parser.add_argument('--commit-message', type=str, default='Upload tick data', help='Сообщение коммита')
+    
+    # Hugging Face: Download ticks
+    hf_download_ticks_parser = subparsers.add_parser('hf-download-ticks', help='Скачать тики с Hugging Face')
+    hf_download_ticks_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_download_ticks_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_download_ticks_parser.add_argument('--local-dir', type=str, default='workspace/raw_data/ticks', help='Локальная директория')
+    
+    # Hugging Face: Upload training data
+    hf_upload_training_parser = subparsers.add_parser('hf-upload-training', help='Загрузить данные для обучения на Hugging Face')
+    hf_upload_training_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_upload_training_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_upload_training_parser.add_argument('--include-scalers', action='store_true', default=True, help='Включить scalers')
+    hf_upload_training_parser.add_argument('--no-scalers', action='store_false', dest='include_scalers', help='Не включать scalers')
+    hf_upload_training_parser.add_argument('--include-cache', action='store_true', help='Включить кэши')
+    hf_upload_training_parser.add_argument('--commit-message', type=str, default='Upload training data', help='Сообщение коммита')
+    
+    # Hugging Face: Download training data
+    hf_download_training_parser = subparsers.add_parser('hf-download-training', help='Скачать данные для обучения с Hugging Face')
+    hf_download_training_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_download_training_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_download_training_parser.add_argument('--local-dir', type=str, default='workspace', help='Локальная директория')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -470,6 +792,38 @@ def main():
     elif args.command == 'list-remote-files':
         downloader = PaperspaceDownloader(host=args.host, path=args.path, user=args.user)
         downloader.list_remote_files()
+    
+    elif args.command == 'hf-upload-ticks':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        uploader = HuggingFaceUploader(repo_id=args.repo_id, token=args.token)
+        uploader.upload_ticks(ticks_dir=args.ticks_dir, commit_message=args.commit_message)
+    
+    elif args.command == 'hf-download-ticks':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        downloader = HuggingFaceDownloader(repo_id=args.repo_id, token=args.token)
+        downloader.download_ticks(local_dir=args.local_dir)
+    
+    elif args.command == 'hf-upload-training':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        uploader = HuggingFaceUploader(repo_id=args.repo_id, token=args.token)
+        uploader.upload_training_data(
+            include_scalers=args.include_scalers,
+            include_cache=args.include_cache,
+            commit_message=args.commit_message
+        )
+    
+    elif args.command == 'hf-download-training':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        downloader = HuggingFaceDownloader(repo_id=args.repo_id, token=args.token)
+        downloader.download_training_data(local_dir=args.local_dir)
     
     print("\n" + "=" * 60)
     print("Готово!")

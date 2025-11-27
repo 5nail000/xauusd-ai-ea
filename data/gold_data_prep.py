@@ -25,17 +25,20 @@ class GoldDataPreparator:
     def __init__(self, 
                  config: Optional[FeatureConfig] = None,
                  training_months: int = 6,
-                 cache_dir: str = 'workspace/raw_data/cache'):
+                 cache_dir: str = 'workspace/raw_data/cache',
+                 offline_mode: bool = False):
         """
         Args:
             config: Конфигурация фичей
             training_months: Количество месяцев данных для обучения (по умолчанию 6)
             cache_dir: Директория для сохранения подготовленных данных
+            offline_mode: Режим offline - работа только с кэшированными данными без подключения к MT5
         """
         self.config = config if config is not None else FeatureConfig()
         self.training_months = training_months
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.offline_mode = offline_mode
         self.feature_engineer = FeatureEngineer(self.config, cache_dir=str(self.cache_dir))
         self.target_generator = TargetGenerator(
             breakout_threshold=450.0,
@@ -90,6 +93,55 @@ class GoldDataPreparator:
         
         start_date = end_date - timedelta(days=period_days)
         
+        # В offline режиме работаем только с кэшированными данными
+        if self.offline_mode:
+            print(f"   [OFFLINE MODE] Загрузка данных только из кэша...")
+            print(f"   Период: {start_date.strftime('%Y-%m-%d %H:%M')} - {end_date.strftime('%Y-%m-%d %H:%M')}")
+            
+            # Загружаем тики из кэша
+            from data.tick_data_loader import TickDataLoader
+            tick_loader = TickDataLoader(use_cache=True, offline_mode=True)
+            
+            print(f"   Загрузка тиков из кэша...")
+            ticks_df = tick_loader.load_ticks(
+                symbol=symbol,
+                start_time=start_date,
+                end_time=end_date,
+                use_cache=True
+            )
+            
+            if ticks_df.empty:
+                raise ValueError(
+                    f"В offline режиме не найдены кэшированные тики для {symbol}\n"
+                    f"   Период: {start_date.strftime('%Y-%m-%d %H:%M')} - {end_date.strftime('%Y-%m-%d %H:%M')}\n"
+                    f"   Убедитесь, что тики загружены в workspace/raw_data/ticks/"
+                )
+            
+            print(f"   Загружено {len(ticks_df):,} тиков из кэша")
+            print(f"   Создание минутных свечей из тиков...")
+            
+            # Создаем минутные свечи из тиков
+            from data.mt5_data_loader import MT5DataLoader
+            df = MT5DataLoader.create_minute_candles_from_ticks(ticks_df)
+            
+            if df.empty:
+                raise ValueError("Не удалось создать минутные свечи из тиков")
+            
+            # Фильтруем по нужному периоду
+            df = df[(df.index >= start_date) & (df.index <= end_date)]
+            
+            if df.empty:
+                raise ValueError(
+                    f"После фильтрации по периоду данных не осталось\n"
+                    f"   Доступный период в тиках: {ticks_df.index.min()} - {ticks_df.index.max()}\n"
+                    f"   Требуемый период: {start_date} - {end_date}"
+                )
+            
+            print(f"   ✓ Создано {len(df)} минутных свечей из тиков")
+            print(f"   Период: {df.index.min().strftime('%Y-%m-%d %H:%M')} - {df.index.max().strftime('%Y-%m-%d %H:%M')}")
+            return df
+        
+        # Обычный режим с подключением к MT5
         loader = MT5DataLoader()
         if not loader.connect():
             raise ConnectionError("Не удалось подключиться к MT5")
@@ -138,7 +190,7 @@ class GoldDataPreparator:
                     
                     from data.tick_data_loader import TickDataLoader
                     # Создаем TickDataLoader с использованием существующего подключения MT5
-                    tick_loader = TickDataLoader(mt5_connection=loader, use_cache=True)
+                    tick_loader = TickDataLoader(mt5_connection=loader, use_cache=True, offline_mode=self.offline_mode)
                     
                     candles_to_add = []
                     
@@ -208,7 +260,7 @@ class GoldDataPreparator:
                 
                 from data.tick_data_loader import TickDataLoader
                 # Создаем TickDataLoader с использованием существующего подключения MT5
-                tick_loader = TickDataLoader(mt5_connection=loader, use_cache=True)
+                tick_loader = TickDataLoader(mt5_connection=loader, use_cache=True, offline_mode=self.offline_mode)
                 
                 print(f"   Загрузка тиков за период {start_date.strftime('%Y-%m-%d %H:%M')} - {end_date.strftime('%Y-%m-%d %H:%M')}...")
                 ticks_df = tick_loader.load_ticks(
@@ -283,6 +335,38 @@ class GoldDataPreparator:
         
         start_date = end_date - timedelta(days=period_days)
         
+        # В offline режиме создаем старшие таймфреймы из минутных данных
+        if self.offline_mode:
+            print(f"[OFFLINE MODE] Создание старших таймфреймов из минутных данных...")
+            
+            # Сначала загружаем минутные данные (в offline режиме они уже загружены из кэша)
+            minute_df = self.load_gold_data(
+                symbol=symbol,
+                end_date=end_date,
+                months=months,
+                days=days,
+                use_ticks_fallback=True  # В offline режиме используем тики из кэша
+            )
+            
+            if minute_df.empty:
+                raise ValueError("Не удалось загрузить минутные данные для создания старших таймфреймов")
+            
+            # Создаем старшие таймфреймы через агрегацию
+            from data.mt5_data_loader import MT5DataLoader
+            higher_timeframes = {}
+            
+            for tf in self.config.higher_timeframes:
+                df_tf = MT5DataLoader.aggregate_timeframe_from_minutes(minute_df, tf)
+                if not df_tf.empty:
+                    # Фильтруем по нужному периоду
+                    df_tf = df_tf[(df_tf.index >= start_date) & (df_tf.index <= end_date)]
+                    if not df_tf.empty:
+                        higher_timeframes[tf] = df_tf
+                        print(f"[{_get_timestamp()}] Создано {len(df_tf)} свечей для таймфрейма {tf} из минутных данных")
+            
+            return higher_timeframes
+        
+        # Обычный режим с подключением к MT5
         loader = MT5DataLoader()
         if not loader.connect():
             raise ConnectionError("Не удалось подключиться к MT5")
@@ -320,7 +404,7 @@ class GoldDataPreparator:
         Returns:
             Словарь {minute_time: ticks_df}
         """
-        tick_loader = TickDataLoader()
+        tick_loader = TickDataLoader(offline_mode=self.offline_mode)
         
         ticks_data = tick_loader.load_ticks_batch(
             symbol=symbol,

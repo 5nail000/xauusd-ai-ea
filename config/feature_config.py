@@ -67,6 +67,20 @@ class FeatureConfig:
     remove_correlated_features: bool = False  # Удалять ли высококоррелированные фичи
     correlation_threshold: float = 0.95  # Порог корреляции для удаления
     
+    # Параметры для уровней поддержки/сопротивления
+    sr_lookback_window: int = 100  # Окно для поиска уровней (количество свечей)
+    sr_extrema_window: int = 5  # Размер окна для поиска локальных экстремумов
+    sr_min_touches: int = 3  # Минимальное количество касаний для формирования уровня
+    sr_cluster_atr_multiplier: float = 2.0  # Множитель ATR для определения близости экстремумов
+    
+    # Параметры для Fibonacci
+    fib_swing_window: int = 50  # Окно для поиска swing high/low
+    fib_levels: List[float] = None  # Уровни Fibonacci (по умолчанию стандартные)
+    
+    # Параметры для Pivot Points
+    use_pivot_points: bool = False  # Использовать ли Pivot Points
+    pivot_type: str = 'classic'  # Тип pivot points ('classic', 'fibonacci', 'camarilla')
+    
     def __post_init__(self):
         """Инициализация значений по умолчанию"""
         if self.sma_periods is None:
@@ -87,6 +101,8 @@ class FeatureConfig:
             self.future_return_periods = [1, 5, 10, 20, 60]
         if self.tick_candle_intervals is None:
             self.tick_candle_intervals = [1, 2, 3, 5, 10, 15, 20, 30, 45]
+        if self.fib_levels is None:
+            self.fib_levels = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
 
 # Глобальный экземпляр конфигурации
 default_config = FeatureConfig()

@@ -23,6 +23,7 @@ from features.multitimeframe_features import add_multitimeframe_features, resamp
 from features.statistical_features import add_statistical_features, add_momentum_features
 from features.volume_features import add_volume_features
 from features.tick_features import add_tick_features_to_minute_data
+from features.level_features import add_support_resistance_features, add_fibonacci_features, add_pivot_points
 
 class FeatureEngineer:
     """
@@ -97,6 +98,8 @@ class FeatureEngineer:
                 ('after_multitimeframe', 'multitimeframe'),
                 ('after_lag_features', 'lag_features'),
                 ('after_statistical', 'statistical'),
+                ('after_fibonacci', 'levels'),  # После Fibonacci, продолжаем с levels
+                ('after_sr_levels', 'levels'),  # После SR, продолжаем с levels
                 ('after_volatility', 'volatility'),
                 ('after_oscillators', 'oscillators'),
                 ('after_trend', 'trend'),
@@ -172,20 +175,55 @@ class FeatureEngineer:
             if save_intermediate:
                 self._save_intermediate_result(symbol, 'after_volatility', df)
         
-        # 5. Временные фичи
+        # 5. Уровни поддержки/сопротивления и Fibonacci
+        # Проверяем, нужно ли вычислять SR уровни
+        if stage_to_continue is None or stage_to_continue == 'levels':
+            if 'support_level' not in df.columns:
+                print(f"[{_get_timestamp()}]   - Уровни поддержки/сопротивления...")
+                df = add_support_resistance_features(
+                    df,
+                    lookback_window=self.config.sr_lookback_window,
+                    extrema_window=self.config.sr_extrema_window,
+                    min_touches=self.config.sr_min_touches,
+                    cluster_atr_multiplier=self.config.sr_cluster_atr_multiplier
+                )
+                if save_intermediate:
+                    self._save_intermediate_result(symbol, 'after_sr_levels', df)
+            else:
+                print(f"[{_get_timestamp()}]   ✓ Уровни поддержки/сопротивления уже вычислены")
+            
+            # Проверяем, нужно ли вычислять Fibonacci
+            if 'swing_high' not in df.columns:
+                print(f"[{_get_timestamp()}]   - Уровни Fibonacci...")
+                df = add_fibonacci_features(
+                    df,
+                    swing_window=self.config.fib_swing_window,
+                    fib_levels=self.config.fib_levels
+                )
+                if save_intermediate:
+                    self._save_intermediate_result(symbol, 'after_fibonacci', df)
+            else:
+                print(f"[{_get_timestamp()}]   ✓ Уровни Fibonacci уже вычислены")
+            
+            # Pivot Points (опционально)
+            if self.config.use_pivot_points:
+                print(f"[{_get_timestamp()}]   - Pivot Points...")
+                df = add_pivot_points(df, pivot_type=self.config.pivot_type)
+        
+        # 6. Временные фичи
         print(f"[{_get_timestamp()}]   - Временные фичи...")
         df = add_time_features(df)
         
-        # 6. Свечные паттерны
+        # 7. Свечные паттерны
         print(f"[{_get_timestamp()}]   - Свечные паттерны...")
         df = add_candle_patterns(df)
         
-        # 7. Объемные фичи (если доступны)
+        # 8. Объемные фичи (если доступны)
         if 'volume' in df.columns:
             print(f"[{_get_timestamp()}]   - Объемные фичи...")
             df = add_volume_features(df)
         
-        # 8. Статистические фичи
+        # 9. Статистические фичи
         if stage_to_continue is None or stage_to_continue == 'statistical':
             print(f"[{_get_timestamp()}]   - Статистические фичи...")
             df = add_statistical_features(
@@ -196,7 +234,7 @@ class FeatureEngineer:
             if save_intermediate:
                 self._save_intermediate_result(symbol, 'after_statistical', df)
         
-        # 9. Фичи момента
+        # 10. Фичи момента
         print(f"[{_get_timestamp()}]   - Фичи момента...")
         df = add_momentum_features(
             df,

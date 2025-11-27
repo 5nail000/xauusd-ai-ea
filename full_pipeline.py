@@ -92,6 +92,12 @@ def main():
   # 12 месяцев данных, только encoder модель
   python full_pipeline.py --months 12 --encoder-only
   
+  # 30 дней данных
+  python full_pipeline.py --days 30
+  
+  # 1 месяц данных
+  python full_pipeline.py --months 1
+  
   # Пропустить подготовку данных (если уже есть)
   python full_pipeline.py --skip-prepare
   
@@ -110,8 +116,15 @@ def main():
     parser.add_argument(
         '-m', '--months',
         type=int,
-        default=12,
-        help='Количество месяцев данных (по умолчанию: 12)'
+        default=None,
+        help='Количество месяцев данных (по умолчанию: 12, если --days не указан)'
+    )
+    
+    parser.add_argument(
+        '-d', '--days',
+        type=int,
+        default=None,
+        help='Количество дней данных (приоритет над --months)'
     )
     
     parser.add_argument(
@@ -209,12 +222,24 @@ def main():
     
     args = parser.parse_args()
     
+    # Определяем период для отображения
+    if args.days is not None:
+        period_str = f"{args.days} дней"
+        period_label = f"{args.days}d"
+    elif args.months is not None:
+        period_str = f"{args.months} месяцев"
+        period_label = f"{args.months}m"
+    else:
+        period_str = "12 месяцев (по умолчанию)"
+        period_label = "12m"
+        args.months = 12
+    
     # Вывод параметров
     print("\n" + "=" * 80)
     print("ПОЛНЫЙ ЦИКЛ: Подготовка -> Обучение -> Бэктестинг")
     print("=" * 80)
     print(f"\nПараметры:")
-    print(f"  Месяцев данных: {args.months}")
+    print(f"  Период данных: {period_str}")
     print(f"  Символ: {args.symbol}")
     print(f"  Тики: {'Нет' if args.no_ticks else 'Да'}")
     print(f"  Старшие таймфреймы: {'Нет' if args.no_higher_tf else 'Да'}")
@@ -256,9 +281,14 @@ def main():
             prepare_cmd = [
                 sys.executable,
                 'prepare_gold_data.py',
-                '--months', str(args.months),
                 '--symbol', args.symbol
             ]
+            
+            # Добавляем параметр периода (приоритет у days)
+            if args.days is not None:
+                prepare_cmd.extend(['--days', str(args.days)])
+            elif args.months is not None:
+                prepare_cmd.extend(['--months', str(args.months)])
             
             if args.no_ticks:
                 prepare_cmd.append('--no-ticks')
@@ -307,11 +337,17 @@ def main():
             train_cmd = [
                 sys.executable,
                 'train_all_models.py',
-                '--months', str(args.months),
                 '--batch-size', str(args.batch_size),
                 '--epochs', str(args.epochs),
                 '--patience', str(args.patience)
             ]
+            
+            # Добавляем параметр периода (train_all_models.py использует только --months для метаданных)
+            # Если указаны дни, не передаем --months (данные уже подготовлены с нужным периодом)
+            # Если указаны месяцы, передаем для метаданных
+            if args.months is not None:
+                train_cmd.extend(['--months', str(args.months)])
+            # Если указаны только дни, не передаем --months (будет использоваться значение по умолчанию 12)
             
             if args.encoder_only:
                 train_cmd.append('--encoder-only')

@@ -43,9 +43,9 @@
 from data.target_generator import TargetGenerator
 
 generator = TargetGenerator(
-    breakout_threshold=50.0,  # Порог для пробоя в пунктах
-    bounce_threshold=30.0,    # Порог для отскока в пунктах
-    lookahead_periods=60      # Количество периодов вперед
+    breakout_threshold=450.0,  # Порог для пробоя в пунктах (по умолчанию 450)
+    bounce_threshold=350.0,    # Порог для отскока в пунктах (по умолчанию 350)
+    lookahead_periods=60       # Количество периодов вперед (минуты)
 )
 
 # Генерация целевых переменных
@@ -123,12 +123,16 @@ python prepare_gold_data.py
 # 12 месяцев
 python prepare_gold_data.py --months 12
 
+# Указать количество дней (приоритет над --months)
+python prepare_gold_data.py --days 30
+python prepare_gold_data.py -d 7
+
 # Справка по всем параметрам
 python prepare_gold_data.py --help
 ```
 
 Скрипт:
-1. Загрузит данные по золоту (6 месяцев по умолчанию, можно указать через `--months`)
+1. Загрузит данные по золоту (6 месяцев по умолчанию, можно указать через `--months` или `--days`)
 2. Загрузит тиковые данные и старшие таймфреймы (можно отключить через `--no-ticks` или `--no-higher-tf`)
 3. Сгенерирует все фичи (с автоматическим сохранением прогресса)
 4. Создаст целевые переменные
@@ -141,6 +145,10 @@ python prepare_gold_data.py --help
 # Количество месяцев
 python prepare_gold_data.py -m 12
 python prepare_gold_data.py --months 12
+
+# Количество дней (приоритет над --months)
+python prepare_gold_data.py --days 30
+python prepare_gold_data.py -d 7
 
 # Без тиков
 python prepare_gold_data.py -m 12 --no-ticks
@@ -220,9 +228,9 @@ preparator = GoldDataPreparator(training_months=3)
 from data.target_generator import TargetGenerator
 
 generator = TargetGenerator(
-    breakout_threshold=50.0,  # Порог пробоя (пункты)
-    bounce_threshold=30.0,    # Порог отскока (пункты)
-    lookahead_periods=60     # Период анализа (минуты)
+    breakout_threshold=450.0,  # Порог пробоя (пункты, по умолчанию 450)
+    bounce_threshold=350.0,    # Порог отскока (пункты, по умолчанию 350)
+    lookahead_periods=60       # Период анализа (минуты)
 )
 ```
 
@@ -258,9 +266,14 @@ generator = TargetGenerator(
    - Автоматически очищаются после успешного завершения
 
 2. **Тиковые данные** (`workspace/raw_data/ticks/`):
-   - Кэшируются по дням
+   - Кэшируются по дням в формате `{symbol}_{YYYYMMDD}.pkl`
+   - При загрузке тиков для минутных свечей система **сначала проверяет кэш** для каждой свечи
+   - Загружает из MT5 **только недостающие** тики (оптимизированная логика)
+   - Показывает статистику использования кэша (сколько данных из кэша vs из MT5)
    - Прогресс батчевой загрузки сохраняется
    - При прерывании продолжается с последней обработанной свечи
+   - **Важно**: По умолчанию система не загружает весь диапазон кэша заранее (1.5 года), 
+     а загружает тики по требованию. Это ускоряет работу, если данные уже в кэше.
 
 3. **Финальный датасет** (`workspace/raw_data/cache/`):
    - Сохраняется в кэш с уникальным именем на основе параметров

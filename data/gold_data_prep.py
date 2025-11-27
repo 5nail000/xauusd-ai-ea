@@ -38,12 +38,12 @@ class GoldDataPreparator:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.feature_engineer = FeatureEngineer(self.config, cache_dir=str(self.cache_dir))
         self.target_generator = TargetGenerator(
-            breakout_threshold=200.0,
-            bounce_threshold=150.0,
+            breakout_threshold=450.0,
+            bounce_threshold=350.0,
             lookahead_periods=60
         )
     
-    def _get_cache_file_path(self, symbol: str, months: int, end_date: Optional[datetime] = None,
+    def _get_cache_file_path(self, symbol: str, period_label: str, end_date: Optional[datetime] = None,
                              load_ticks: bool = True, load_higher_tf: bool = True) -> Path:
         """Генерирует путь к файлу кэша на основе параметров"""
         if end_date is None:
@@ -53,13 +53,14 @@ class GoldDataPreparator:
         date_str = end_date.strftime('%Y%m%d')
         ticks_flag = 'ticks' if load_ticks else 'noticks'
         tf_flag = 'mtf' if load_higher_tf else 'notf'
-        filename = f'{symbol}_{months}m_{date_str}_{ticks_flag}_{tf_flag}.pkl'
+        filename = f'{symbol}_{period_label}_{date_str}_{ticks_flag}_{tf_flag}.pkl'
         return self.cache_dir / filename
     
     def load_gold_data(self, 
                       symbol: str = 'XAUUSD',
                       end_date: Optional[datetime] = None,
                       months: Optional[int] = None,
+                      days: Optional[int] = None,
                       use_ticks_fallback: bool = True) -> pd.DataFrame:
         """
         Загружает минутные данные по золоту.
@@ -68,19 +69,26 @@ class GoldDataPreparator:
         Args:
             symbol: Символ (по умолчанию XAUUSD)
             end_date: Конечная дата (если None, используется текущая дата)
-            months: Количество месяцев (если None, используется self.training_months)
+            months: Количество месяцев (если None и days не указан, используется self.training_months)
+            days: Количество дней (приоритет над months)
             use_ticks_fallback: Использовать тики для создания минутных свечей, если данных недостаточно
         
         Returns:
             DataFrame с минутными данными
         """
-        if months is None:
-            months = self.training_months
-        
         if end_date is None:
             end_date = datetime.now()
         
-        start_date = end_date - timedelta(days=months * 30)
+        # Определяем период: приоритет у days, если указан
+        if days is not None:
+            period_days = days
+        elif months is not None:
+            period_days = months * 30
+        else:
+            months = self.training_months
+            period_days = months * 30
+        
+        start_date = end_date - timedelta(days=period_days)
         
         loader = MT5DataLoader()
         if not loader.connect():
@@ -244,28 +252,36 @@ class GoldDataPreparator:
             # но мы все равно отключаем основное подключение loader
             loader.disconnect()
     
-    def load_higher_timeframes(self, 
+    def load_higher_timeframes(self,
                               symbol: str = 'XAUUSD',
                               end_date: Optional[datetime] = None,
-                              months: Optional[int] = None) -> Dict[str, pd.DataFrame]:
+                              months: Optional[int] = None,
+                              days: Optional[int] = None) -> Dict[str, pd.DataFrame]:
         """
         Загружает данные старших таймфреймов
         
         Args:
             symbol: Символ
             end_date: Конечная дата
-            months: Количество месяцев
+            months: Количество месяцев (если None и days не указан, используется self.training_months)
+            days: Количество дней (приоритет над months)
         
         Returns:
             Словарь {timeframe: DataFrame}
         """
-        if months is None:
-            months = self.training_months
-        
         if end_date is None:
             end_date = datetime.now()
         
-        start_date = end_date - timedelta(days=months * 30)
+        # Определяем период: приоритет у days, если указан
+        if days is not None:
+            period_days = days
+        elif months is not None:
+            period_days = months * 30
+        else:
+            months = self.training_months
+            period_days = months * 30
+        
+        start_date = end_date - timedelta(days=period_days)
         
         loader = MT5DataLoader()
         if not loader.connect():
@@ -315,10 +331,11 @@ class GoldDataPreparator:
         print(f"[{_get_timestamp()}] Загружено тиковых данных для {len(ticks_data)} минутных свечей")
         return ticks_data
     
-    def prepare_full_dataset(self, 
+    def prepare_full_dataset(self,
                             symbol: str = 'XAUUSD',
                             end_date: Optional[datetime] = None,
                             months: Optional[int] = None,
+                            days: Optional[int] = None,
                             load_ticks: bool = True,
                             load_higher_tf: bool = True,
                             use_cache: bool = True,
@@ -330,7 +347,8 @@ class GoldDataPreparator:
         Args:
             symbol: Символ
             end_date: Конечная дата
-            months: Количество месяцев
+            months: Количество месяцев (используется если days не указан)
+            days: Количество дней (приоритет над months)
             load_ticks: Загружать ли тиковые данные
             load_higher_tf: Загружать ли старшие таймфреймы
             use_cache: Использовать сохраненный кэш, если он есть
@@ -340,11 +358,20 @@ class GoldDataPreparator:
         Returns:
             DataFrame со всеми фичами и целевыми переменными
         """
-        if months is None:
+        # Определяем период: приоритет у days, если указан
+        if days is not None:
+            period_days = days
+            period_label = f"{days}d"
+        elif months is not None:
+            period_days = months * 30
+            period_label = f"{months}m"
+        else:
             months = self.config.training_data_months
+            period_days = months * 30
+            period_label = f"{months}m"
         
         # Проверяем наличие сохраненного файла
-        cache_file = self._get_cache_file_path(symbol, months, end_date, load_ticks, load_higher_tf)
+        cache_file = self._get_cache_file_path(symbol, period_label, end_date, load_ticks, load_higher_tf)
         
         if use_cache and not force_regenerate and cache_file.exists():
             if ask_on_existing:
@@ -383,13 +410,13 @@ class GoldDataPreparator:
         
         # 1. Загрузка минутных данных
         print(f"\n[{_get_timestamp()}] 1. Загрузка минутных данных...")
-        df_minute = self.load_gold_data(symbol, end_date, months)
+        df_minute = self.load_gold_data(symbol, end_date, months, days)
         
         # 2. Загрузка старших таймфреймов
         higher_timeframes = None
         if load_higher_tf:
             print(f"\n[{_get_timestamp()}] 2. Загрузка старших таймфреймов...")
-            higher_timeframes = self.load_higher_timeframes(symbol, end_date, months)
+            higher_timeframes = self.load_higher_timeframes(symbol, end_date, months, days)
         
         # 3. Загрузка тиковых данных
         ticks_data = None
@@ -469,6 +496,10 @@ class GoldDataPreparator:
             df: DataFrame с данными
             filepath: Путь для сохранения
         """
+        # Создаем директорию, если её нет
+        filepath_obj = Path(filepath)
+        filepath_obj.parent.mkdir(parents=True, exist_ok=True)
+        
         df.to_csv(filepath, index=True)
         print(f"[{_get_timestamp()}] Данные сохранены в {filepath}")
     

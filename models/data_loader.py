@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple, Dict
 from sklearn.preprocessing import StandardScaler
 import pickle
 import os
+from pathlib import Path
 
 class TimeSeriesDataset(Dataset):
     """
@@ -184,6 +185,10 @@ class SequenceGenerator:
         metadata['num_features'] = len(self.feature_columns)
         metadata['feature_columns_hash'] = hash(tuple(sorted(self.feature_columns)))
         metadata['saved_at'] = pd.Timestamp.now().isoformat()
+        
+        # Создаем директорию, если её нет
+        filepath_obj = Path(filepath)
+        filepath_obj.parent.mkdir(parents=True, exist_ok=True)
         
         with open(filepath, 'wb') as f:
             pickle.dump({

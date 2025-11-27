@@ -12,8 +12,8 @@ class TargetGenerator:
     """
     
     def __init__(self, 
-                 breakout_threshold: float = 200.0,
-                 bounce_threshold: float = 150.0,
+                 breakout_threshold: float = 450.0,
+                 bounce_threshold: float = 350.0,
                  lookahead_periods: int = 60):
         """
         Args:
@@ -106,6 +106,7 @@ class TargetGenerator:
                 continue
             
             # Затем проверяем на пробой
+            # Пробой должен быть достаточно сильным и устойчивым
             if abs(period_return) >= self.breakout_threshold:
                 is_breakout = self._check_breakout(df, i, period_num, period_return)
                 if is_breakout:
@@ -146,8 +147,9 @@ class TargetGenerator:
             same_direction = sum(1 for r in intermediate_returns 
                                 if np.sign(r) == direction) / len(intermediate_returns)
             
-            # Если более 70% движений в одном направлении - это пробой
-            if same_direction >= 0.7:
+            # Если более 80% движений в одном направлении - это пробой
+            # Ужесточили с 70% до 80% для более строгой фильтрации
+            if same_direction >= 0.8:
                 return True
         
         # Если нет промежуточных данных, проверяем только финальную доходность
@@ -189,7 +191,9 @@ class TargetGenerator:
         initial_direction = np.sign(intermediate_returns[max_initial_idx])
         
         # Проверяем, было ли начальное движение достаточно сильным
-        if max_initial_movement < 50:  # Минимальное движение для отскока
+        # Минимальное движение должно быть не менее 30% от порога отскока
+        min_initial_movement = self.bounce_threshold * 0.3
+        if max_initial_movement < min_initial_movement:
             return None
         
         # Проверяем финальную доходность (должна быть противоположного знака)

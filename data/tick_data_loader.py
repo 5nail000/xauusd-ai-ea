@@ -466,7 +466,8 @@ class TickDataLoader:
     def load_ticks_batch(self, symbol: str, minute_times: pd.DatetimeIndex,
                         lookback_minutes: int = 1, 
                         save_progress_every: int = 1000,
-                        resume: bool = True) -> Dict[datetime, pd.DataFrame]:
+                        resume: bool = True,
+                        ensure_full_coverage: bool = False) -> Dict[datetime, pd.DataFrame]:
         """
         Загрузка тиков для множества минутных свечей с сохранением прогресса
         
@@ -476,18 +477,36 @@ class TickDataLoader:
             lookback_minutes: Количество минут для загрузки тиков
             save_progress_every: Сохранять прогресс каждые N свечей
             resume: Продолжить с сохраненного прогресса, если он есть
+            ensure_full_coverage: Если True, заранее загружает весь диапазон кэша (1.5 года).
+                                 Если False, загружает только недостающие тики для конкретных свечей.
         
         Returns:
             Словарь {minute_time: DataFrame с тиками}
         """
-        # Обеспечиваем покрытие кэша
-        if self.use_cache and self.cache is not None and len(minute_times) > 0:
+        # Обеспечиваем покрытие кэша только если явно запрошено
+        # По умолчанию загружаем тики по требованию (быстрее, если данные уже в кэше)
+        if ensure_full_coverage and self.use_cache and self.cache is not None and len(minute_times) > 0:
             max_time = minute_times.max()
             self.ensure_cache_coverage(symbol, max_time)
         
         # Засекаем время начала обработки
         start_time = time.time()
         start_timestamp = self._get_timestamp()
+        
+        # Предварительная проверка кэша (для информации)
+        if self.use_cache and self.cache is not None and len(minute_times) > 0:
+            cache_hits = 0
+            for minute_time in minute_times[:min(100, len(minute_times))]:  # Проверяем первые 100 для скорости
+                start_time_range = minute_time - timedelta(minutes=lookback_minutes)
+                cached_ticks = self.cache.get_cached_ticks(symbol, start_time_range, minute_time)
+                if cached_ticks is not None and not cached_ticks.empty:
+                    cache_hits += 1
+            if len(minute_times) > 100:
+                estimated_cache_pct = (cache_hits / 100) * 100
+                print(f"  [{start_timestamp}] Предварительная проверка кэша: ~{estimated_cache_pct:.1f}% данных уже в кэше")
+            elif cache_hits > 0:
+                cache_pct = (cache_hits / len(minute_times)) * 100
+                print(f"  [{start_timestamp}] Предварительная проверка кэша: {cache_pct:.1f}% данных уже в кэше")
         
         # Пытаемся загрузить сохраненный прогресс
         ticks_data = {}
@@ -525,6 +544,7 @@ class TickDataLoader:
         loaded_count = len(ticks_data)
         empty_count = 0
         cached_count = 0
+        mt5_count = 0
         last_save_index = start_index
         
         print(f"  [{start_timestamp}] Загрузка тиков для {len(minute_times)} минутных свечей...")
@@ -542,30 +562,41 @@ class TickDataLoader:
                 elapsed = time.time() - start_time
                 current_timestamp = self._get_timestamp()
                 duration_str = self._format_duration(elapsed)
-                print(f"    [{current_timestamp}] Обработано {i + 1}/{len(minute_times)} свечей... (время работы: {duration_str})")
+                cache_pct = (cached_count / max(loaded_count, 1)) * 100
+                print(f"    [{current_timestamp}] Обработано {i + 1}/{len(minute_times)} свечей... "
+                      f"(время работы: {duration_str}, из кэша: {cached_count}/{loaded_count} = {cache_pct:.1f}%)")
             
             try:
-                ticks = self.load_ticks_for_minute(symbol, minute_time, lookback_minutes)
+                # Сначала проверяем кэш (если включен)
+                was_cached = False
+                if self.use_cache and self.cache is not None:
+                    start_time_range = minute_time - timedelta(minutes=lookback_minutes)
+                    cached_ticks = self.cache.get_cached_ticks(symbol, start_time_range, minute_time)
+                    if cached_ticks is not None and not cached_ticks.empty:
+                        ticks = cached_ticks
+                        was_cached = True
+                    else:
+                        ticks = self.load_ticks_for_minute(symbol, minute_time, lookback_minutes)
+                else:
+                    ticks = self.load_ticks_for_minute(symbol, minute_time, lookback_minutes)
+                
                 if not ticks.empty:
                     ticks_data[minute_time] = ticks
                     processed_times.add(minute_time)
                     dirty_minutes.append(minute_time)
                     loaded_count += 1
                     
+                    if was_cached:
+                        cached_count += 1
+                    else:
+                        mt5_count += 1
+                    
                     # Диагностика для первых 5 загруженных тиков
                     if loaded_count <= 5:
                         time_range_start = minute_time - timedelta(minutes=lookback_minutes)
-                        print(f"    [{self._get_timestamp()}] Пример {loaded_count}: Минута {minute_time}, тиков: {len(ticks)}, диапазон: {time_range_start} - {minute_time}")
-                    
-                    # Проверяем, были ли тики из кэша
-                    if self.use_cache and self.cache is not None:
-                        cached = self.cache.get_cached_ticks(
-                            symbol,
-                            minute_time - timedelta(minutes=lookback_minutes),
-                            minute_time
-                        )
-                        if cached is not None and not cached.empty:
-                            cached_count += 1
+                        source = "кэш" if was_cached else "MT5"
+                        print(f"    [{self._get_timestamp()}] Пример {loaded_count}: Минута {minute_time}, "
+                              f"тиков: {len(ticks)}, диапазон: {time_range_start} - {minute_time}, источник: {source}")
                 else:
                     empty_count += 1
                     # Диагностика для первых 5 пустых тиков
@@ -615,7 +646,12 @@ class TickDataLoader:
         total_elapsed = time.time() - start_time
         end_timestamp = self._get_timestamp()
         total_duration_str = self._format_duration(total_elapsed)
-        print(f"  [{end_timestamp}] Загружено тиков для {loaded_count} свечей (из кэша: {cached_count}), пустых: {empty_count}")
+        cache_pct = (cached_count / max(loaded_count, 1)) * 100
+        mt5_pct = (mt5_count / max(loaded_count, 1)) * 100
+        print(f"  [{end_timestamp}] Загружено тиков для {loaded_count} свечей:")
+        print(f"    - Из кэша: {cached_count} ({cache_pct:.1f}%)")
+        print(f"    - Из MT5: {mt5_count} ({mt5_pct:.1f}%)")
+        print(f"    - Пустых: {empty_count}")
         print(f"  [{end_timestamp}] Общее время обработки: {total_duration_str}")
         
         # Если все обработано успешно, удаляем файл прогресса

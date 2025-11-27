@@ -39,10 +39,11 @@ class TickCache:
         with open(self.metadata_file, 'wb') as f:
             pickle.dump(self.metadata, f)
     
-    def _get_tick_file_path(self, symbol: str, date: datetime) -> Path:
+    def _get_tick_file_path(self, symbol: str, date: datetime, use_parquet: bool = True) -> Path:
         """Возвращает путь к файлу тиков для даты"""
         date_str = date.strftime('%Y%m%d')
-        return self.cache_dir / f'{symbol}_{date_str}.pkl'
+        extension = '.parquet' if use_parquet else '.pkl'
+        return self.cache_dir / f'{symbol}_{date_str}{extension}'
     
     def _get_date_range(self, start_date: datetime, end_date: datetime) -> list:
         """Возвращает список дат в диапазоне"""
@@ -72,36 +73,70 @@ class TickCache:
         dates = self._get_date_range(start_date, end_date)
         all_ticks = []
         
-        failed_files = []
         for date in dates:
-            file_path = self._get_tick_file_path(symbol, date)
-            if file_path.exists():
+            # Сначала пытаемся загрузить parquet (новый формат)
+            file_path_parquet = self._get_tick_file_path(symbol, date, use_parquet=True)
+            file_path_pickle = self._get_tick_file_path(symbol, date, use_parquet=False)
+            
+            df = None
+            file_path = None
+            
+            # Пробуем загрузить parquet (приоритет)
+            if file_path_parquet.exists():
                 try:
-                    df = pd.read_pickle(file_path)
-                    if not df.empty:
-                        # Фильтруем по времени
-                        mask = (df.index >= start_date) & (df.index <= end_date)
-                        filtered_df = df[mask]
-                        if not filtered_df.empty:
-                            all_ticks.append(filtered_df)
+                    df = pd.read_parquet(file_path_parquet)
+                    file_path = file_path_parquet
+                except Exception as e:
+                    # Если parquet не загрузился, пробуем pickle (обратная совместимость)
+                    if file_path_pickle.exists():
+                        try:
+                            df = pd.read_pickle(file_path_pickle)
+                            file_path = file_path_pickle
+                            # Автоматически конвертируем в parquet для будущего использования
+                            try:
+                                df.to_parquet(file_path_parquet, compression='snappy', index=True)
+                                # Удаляем старый pickle файл после успешной конвертации
+                                file_path_pickle.unlink()
+                            except Exception:
+                                pass  # Если не удалось конвертировать, продолжаем с pickle
+                        except (ModuleNotFoundError, ImportError, AttributeError) as e:
+                            error_msg = str(e)
+                            if 'numpy._core' in error_msg or 'numpy.core' in error_msg:
+                                print(f"⚠️  Пропущен файл {file_path_pickle.name} (несовместимость версий numpy)")
+                            else:
+                                print(f"Ошибка при загрузке тиков из {file_path_pickle}: {e}")
+                        except Exception as e:
+                            print(f"Ошибка при загрузке тиков из {file_path_pickle}: {e}")
+                    else:
+                        print(f"Ошибка при загрузке parquet из {file_path_parquet}: {e}")
+            # Если parquet нет, пробуем pickle (обратная совместимость)
+            elif file_path_pickle.exists():
+                try:
+                    df = pd.read_pickle(file_path_pickle)
+                    file_path = file_path_pickle
+                    # Автоматически конвертируем в parquet для будущего использования
+                    try:
+                        df.to_parquet(file_path_parquet, compression='snappy', index=True)
+                        # Удаляем старый pickle файл после успешной конвертации
+                        file_path_pickle.unlink()
+                    except Exception:
+                        pass  # Если не удалось конвертировать, продолжаем с pickle
                 except (ModuleNotFoundError, ImportError, AttributeError) as e:
-                    # Ошибка совместимости версий numpy/pickle между платформами
                     error_msg = str(e)
                     if 'numpy._core' in error_msg or 'numpy.core' in error_msg:
-                        failed_files.append(file_path.name)
-                        # Не выводим каждую ошибку, чтобы не засорять вывод
+                        print(f"⚠️  Пропущен файл {file_path_pickle.name} (несовместимость версий numpy)")
                     else:
-                        print(f"Ошибка при загрузке тиков из {file_path}: {e}")
+                        print(f"Ошибка при загрузке тиков из {file_path_pickle}: {e}")
                 except Exception as e:
-                    print(f"Ошибка при загрузке тиков из {file_path}: {e}")
-        
-        # Если были ошибки совместимости, выводим общее сообщение
-        if failed_files:
-            print(f"\n⚠️  Обнаружена несовместимость версий numpy при загрузке {len(failed_files)} файлов.")
-            print(f"   Это происходит при переносе pickle файлов между Windows и Linux.")
-            print(f"   Рекомендуется скачать тики с Hugging Face:")
-            print(f"   python paperspace_utils.py hf-download-ticks --repo-id Snail000/Tickmill-XAUUSD-Ticks")
-            print(f"   Или пересохранить тики в совместимом формате на исходной машине.\n")
+                    print(f"Ошибка при загрузке тиков из {file_path_pickle}: {e}")
+            
+            # Если данные загружены, фильтруем по времени
+            if df is not None and not df.empty:
+                # Фильтруем по времени
+                mask = (df.index >= start_date) & (df.index <= end_date)
+                filtered_df = df[mask]
+                if not filtered_df.empty:
+                    all_ticks.append(filtered_df)
         
         if all_ticks:
             result = pd.concat(all_ticks).sort_index()
@@ -134,11 +169,15 @@ class TickCache:
         for date, group_df in grouped:
             dates_list.append(date)
             date_dt = datetime.combine(date, datetime.min.time())
-            file_path = self._get_tick_file_path(symbol, date_dt)
+            file_path = self._get_tick_file_path(symbol, date_dt, use_parquet=True)
             
-            # Сохраняем группу (это уже копия из groupby, не нужно копировать еще раз)
+            # Сохраняем группу в parquet формате (кроссплатформенный)
             try:
-                group_df.to_pickle(file_path)
+                group_df.to_parquet(file_path, compression='snappy', index=True)
+                # Удаляем старый pickle файл, если существует
+                old_pickle_path = self._get_tick_file_path(symbol, date_dt, use_parquet=False)
+                if old_pickle_path.exists():
+                    old_pickle_path.unlink()
             except Exception as e:
                 print(f"    Ошибка при сохранении {file_path}: {e}")
         
@@ -214,14 +253,18 @@ class TickCache:
             symbol: Символ для очистки (если None - очищает весь кэш)
         """
         if symbol is None:
-            # Очищаем весь кэш
+            # Очищаем весь кэш (и pickle, и parquet файлы)
             for file in self.cache_dir.glob('*.pkl'):
                 if file.name != 'tick_metadata.pkl':
                     file.unlink()
+            for file in self.cache_dir.glob('*.parquet'):
+                file.unlink()
             self.metadata = {}
         else:
-            # Очищаем кэш для конкретного символа
+            # Очищаем кэш для конкретного символа (и pickle, и parquet файлы)
             for file in self.cache_dir.glob(f'{symbol}_*.pkl'):
+                file.unlink()
+            for file in self.cache_dir.glob(f'{symbol}_*.parquet'):
                 file.unlink()
             if symbol in self.metadata:
                 del self.metadata[symbol]
@@ -239,11 +282,14 @@ class TickCache:
             Количество файлов
         """
         if symbol is None:
-            pattern = '*.pkl'
+            # Подсчитываем и pickle, и parquet файлы
+            pkl_files = [f for f in self.cache_dir.glob('*.pkl') 
+                        if f.name != 'tick_metadata.pkl']
+            parquet_files = list(self.cache_dir.glob('*.parquet'))
+            return len(pkl_files) + len(parquet_files)
         else:
-            pattern = f'{symbol}_*.pkl'
-        
-        files = [f for f in self.cache_dir.glob(pattern) 
-                if f.name != 'tick_metadata.pkl']
-        return len(files)
+            # Подсчитываем и pickle, и parquet файлы для символа
+            pkl_files = list(self.cache_dir.glob(f'{symbol}_*.pkl'))
+            parquet_files = list(self.cache_dir.glob(f'{symbol}_*.parquet'))
+            return len(pkl_files) + len(parquet_files)
 

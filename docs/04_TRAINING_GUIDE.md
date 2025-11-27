@@ -17,6 +17,12 @@ python full_pipeline.py --months 12
 # С параметрами
 python full_pipeline.py --months 12 --encoder-only --epochs 50
 
+# С удалением высококоррелированных фичей
+python full_pipeline.py --months 12 --remove-correlated
+
+# С кастомным порогом корреляции
+python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
+
 # Пропустить этапы (если данные/модели уже есть)
 python full_pipeline.py --skip-prepare  # Пропустить подготовку данных
 python full_pipeline.py --skip-train     # Пропустить обучение

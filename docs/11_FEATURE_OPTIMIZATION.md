@@ -133,6 +133,18 @@ backtester.anomaly_threshold = 2.5  # 2.5σ вместо 3σ
 
 ### Анализ корреляции перед обучением
 
+#### Вариант 1: Автоматически в full_pipeline.py (рекомендуется)
+
+```bash
+# Автоматическое удаление коррелированных фичей в полном цикле
+python full_pipeline.py --months 12 --remove-correlated
+
+# С кастомным порогом корреляции
+python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
+```
+
+#### Вариант 2: Вручную (для детального анализа)
+
 ```bash
 # 1. Подготовка данных
 python prepare_gold_data.py --months 12

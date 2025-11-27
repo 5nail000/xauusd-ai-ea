@@ -5,6 +5,7 @@ import os
 import sys
 import argparse
 import subprocess
+import shutil
 from pathlib import Path
 
 def run_command(command, description):
@@ -109,6 +110,12 @@ def main():
   
   # С настройками обучения
   python full_pipeline.py --months 12 --epochs 50 --batch-size 16
+  
+  # С удалением высококоррелированных фичей
+  python full_pipeline.py --months 12 --remove-correlated
+  
+  # С удалением коррелированных фичей и кастомным порогом
+  python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
         """
     )
     
@@ -156,6 +163,19 @@ def main():
         '--no-cache',
         action='store_true',
         help='Не использовать кэш при подготовке данных'
+    )
+    
+    parser.add_argument(
+        '--remove-correlated',
+        action='store_true',
+        help='Удалить высококоррелированные фичи после подготовки данных'
+    )
+    
+    parser.add_argument(
+        '--correlation-threshold',
+        type=float,
+        default=0.95,
+        help='Порог корреляции для удаления фичей (по умолчанию: 0.95)'
     )
     
     # Параметры обучения
@@ -243,6 +263,9 @@ def main():
     print(f"  Символ: {args.symbol}")
     print(f"  Тики: {'Нет' if args.no_ticks else 'Да'}")
     print(f"  Старшие таймфреймы: {'Нет' if args.no_higher_tf else 'Да'}")
+    print(f"  Удаление коррелированных фичей: {'Да' if args.remove_correlated else 'Нет'}")
+    if args.remove_correlated:
+        print(f"  Порог корреляции: {args.correlation_threshold}")
     print(f"  Размер батча: {args.batch_size}")
     print(f"  Эпох: {args.epochs}")
     print(f"  Early stopping patience: {args.patience}")
@@ -303,6 +326,60 @@ def main():
             if not run_command(prepare_cmd, "ЭТАП 1: Подготовка данных"):
                 print("\n❌ Ошибка на этапе подготовки данных. Остановка.")
                 return 1
+            
+            # Опциональное удаление высококоррелированных фичей
+            if args.remove_correlated:
+                print("\n" + "=" * 80)
+                print("ОПТИМИЗАЦИЯ ФИЧЕЙ: Удаление высококоррелированных")
+                print("=" * 80)
+                print(f"Порог корреляции: {args.correlation_threshold}")
+                print("Таблицы анализа будут сохранены в workspace/prepared/features/")
+                
+                csv_files = [
+                    ('workspace/prepared/features/gold_train.csv', 'train'),
+                    ('workspace/prepared/features/gold_val.csv', 'val'),
+                    ('workspace/prepared/features/gold_test.csv', 'test')
+                ]
+                
+                for csv_file, file_type in csv_files:
+                    if not os.path.exists(csv_file):
+                        print(f"⚠️  Файл {csv_file} не найден, пропускаем...")
+                        continue
+                    
+                    print(f"\nОбработка {file_type} данных...")
+                    temp_output = csv_file.replace('.csv', '_no_corr_temp.csv')
+                    
+                    # Запускаем analyze_feature_correlation.py
+                    analyze_cmd = [
+                        sys.executable,
+                        'analyze_feature_correlation.py',
+                        '--input', csv_file,
+                        '--output', temp_output,
+                        '--threshold', str(args.correlation_threshold),
+                        '--remove',
+                        '--save-tables'
+                    ]
+                    
+                    if run_command(analyze_cmd, f"Удаление коррелированных фичей из {file_type}"):
+                        # Заменяем оригинальный файл очищенной версией
+                        if os.path.exists(temp_output):
+                            # Создаем резервную копию оригинального файла
+                            backup_file = csv_file.replace('.csv', '_backup.csv')
+                            if os.path.exists(csv_file):
+                                shutil.copy2(csv_file, backup_file)
+                            
+                            # Заменяем оригинальный файл очищенной версией
+                            shutil.move(temp_output, csv_file)
+                            print(f"✓ Файл {csv_file} обновлен (коррелированные фичи удалены)")
+                            if os.path.exists(backup_file):
+                                print(f"  Резервная копия сохранена: {backup_file}")
+                        else:
+                            print(f"⚠️  Очищенный файл не создан для {file_type}")
+                    else:
+                        print(f"⚠️  Ошибка при обработке {file_type}, продолжаем...")
+                        # Удаляем временный файл, если он был создан
+                        if os.path.exists(temp_output):
+                            os.remove(temp_output)
     else:
         print("\n⏭️  Пропуск этапа подготовки данных")
         if not check_data_files():

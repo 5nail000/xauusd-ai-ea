@@ -73,7 +73,14 @@ class TickCache:
         dates = self._get_date_range(start_date, end_date)
         all_ticks = []
         
-        for date in dates:
+        total_dates = len(dates)
+        loaded_count = 0
+        error_count = 0
+        
+        for i, date in enumerate(dates):
+            # Показываем прогресс каждые 10 дней или в начале/конце
+            if i % 10 == 0 or i == total_dates - 1:
+                print(f"   Загрузка тиков из кэша: {i+1}/{total_dates} дней (загружено: {loaded_count}, ошибок: {error_count})...", end='\r')
             # Сначала пытаемся загрузить parquet (новый формат)
             file_path_parquet = self._get_tick_file_path(symbol, date, use_parquet=True)
             file_path_pickle = self._get_tick_file_path(symbol, date, use_parquet=False)
@@ -86,12 +93,14 @@ class TickCache:
                 try:
                     df = pd.read_parquet(file_path_parquet)
                     file_path = file_path_parquet
+                    loaded_count += 1
                 except Exception as e:
                     # Если parquet не загрузился, пробуем pickle (обратная совместимость)
                     if file_path_pickle.exists():
                         try:
                             df = pd.read_pickle(file_path_pickle)
                             file_path = file_path_pickle
+                            loaded_count += 1
                             # Автоматически конвертируем в parquet для будущего использования
                             try:
                                 df.to_parquet(file_path_parquet, compression='snappy', index=True)
@@ -102,18 +111,20 @@ class TickCache:
                         except (ModuleNotFoundError, ImportError, AttributeError) as e:
                             error_msg = str(e)
                             if 'numpy._core' in error_msg or 'numpy.core' in error_msg:
-                                print(f"⚠️  Пропущен файл {file_path_pickle.name} (несовместимость версий numpy)")
+                                # Тихо пропускаем файлы с несовместимостью numpy
+                                error_count += 1
                             else:
-                                print(f"Ошибка при загрузке тиков из {file_path_pickle}: {e}")
+                                error_count += 1
                         except Exception as e:
-                            print(f"Ошибка при загрузке тиков из {file_path_pickle}: {e}")
+                            error_count += 1
                     else:
-                        print(f"Ошибка при загрузке parquet из {file_path_parquet}: {e}")
+                        error_count += 1
             # Если parquet нет, пробуем pickle (обратная совместимость)
             elif file_path_pickle.exists():
                 try:
                     df = pd.read_pickle(file_path_pickle)
                     file_path = file_path_pickle
+                    loaded_count += 1
                     # Автоматически конвертируем в parquet для будущего использования
                     try:
                         df.to_parquet(file_path_parquet, compression='snappy', index=True)
@@ -124,22 +135,30 @@ class TickCache:
                 except (ModuleNotFoundError, ImportError, AttributeError) as e:
                     error_msg = str(e)
                     if 'numpy._core' in error_msg or 'numpy.core' in error_msg:
-                        print(f"⚠️  Пропущен файл {file_path_pickle.name} (несовместимость версий numpy)")
+                        # Тихо пропускаем файлы с несовместимостью numpy
+                        error_count += 1
                     else:
-                        print(f"Ошибка при загрузке тиков из {file_path_pickle}: {e}")
+                        error_count += 1
                 except Exception as e:
-                    print(f"Ошибка при загрузке тиков из {file_path_pickle}: {e}")
+                    error_count += 1
             
             # Если данные загружены, фильтруем по времени
             if df is not None and not df.empty:
-                # Фильтруем по времени
-                mask = (df.index >= start_date) & (df.index <= end_date)
-                filtered_df = df[mask]
-                if not filtered_df.empty:
-                    all_ticks.append(filtered_df)
+                try:
+                    # Фильтруем по времени
+                    mask = (df.index >= start_date) & (df.index <= end_date)
+                    filtered_df = df[mask]
+                    if not filtered_df.empty:
+                        all_ticks.append(filtered_df)
+                except Exception as e:
+                    error_count += 1
+        
+        print()  # Новая строка после прогресса
         
         if all_ticks:
             result = pd.concat(all_ticks).sort_index()
+            if loaded_count > 0 or error_count > 0:
+                print(f"   Загружено файлов: {loaded_count}, ошибок/пропущено: {error_count}")
             return result
         
         return None

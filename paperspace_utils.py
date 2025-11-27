@@ -607,16 +607,25 @@ class HuggingFaceDownloader:
             downloaded_path = Path(downloaded_path)
             ticks_subdir = downloaded_path / 'ticks'
             if ticks_subdir.exists() and ticks_subdir.is_dir():
-                # Данные в поддиректории ticks, перемещаем содержимое
+                # Данные в поддиректории ticks, перемещаем содержимое (не копируем!)
                 print(f"  Перемещение данных из поддиректории...")
                 for item in ticks_subdir.iterdir():
                     dest = local_path / item.name
                     if item.is_file():
-                        shutil.copy2(item, dest)
+                        if dest.exists():
+                            dest.unlink()  # Удаляем существующий файл
+                        shutil.move(str(item), str(dest))  # Перемещаем
                     else:
                         if dest.exists():
                             shutil.rmtree(dest)
-                        shutil.copytree(item, dest)
+                        shutil.move(str(item), str(dest))  # Перемещаем директорию
+                
+                # Удаляем пустую поддиректорию ticks после перемещения
+                try:
+                    ticks_subdir.rmdir()  # Удаляем пустую директорию
+                except OSError:
+                    # Если директория не пустая, удаляем рекурсивно
+                    shutil.rmtree(ticks_subdir)
             
             print(f"\n✓ Тиковые данные успешно скачаны!")
             print(f"  Локальная директория: {local_dir}")

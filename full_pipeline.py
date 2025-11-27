@@ -169,6 +169,12 @@ def main():
     )
     
     parser.add_argument(
+        '--offline',
+        action='store_true',
+        help='Режим offline - работа только с кэшированными данными без подключения к MT5'
+    )
+    
+    parser.add_argument(
         '--remove-correlated',
         action='store_true',
         help='Удалить высококоррелированные фичи после подготовки данных'

@@ -9,8 +9,15 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
-import MetaTrader5 as mt5
 from data.tick_cache import TickCache
+
+# Ленивый импорт MT5 - только когда нужен
+try:
+    import MetaTrader5 as mt5
+    MT5_AVAILABLE = True
+except ImportError:
+    MT5_AVAILABLE = False
+    mt5 = None
 
 class TickDataLoader:
     """Класс для загрузки тиковых данных из MetaTrader 5"""
@@ -59,6 +66,12 @@ class TickDataLoader:
             # В offline режиме не подключаемся к MT5
             return
         
+        if not MT5_AVAILABLE:
+            raise ImportError(
+                "MetaTrader5 не установлен. Для offline режима используйте --offline флаг. "
+                "Для обычного режима установите: pip install MetaTrader5"
+            )
+        
         if not self.connected:
             # Если передан существующий объект подключения, проверяем его
             if self.mt5_connection is not None:
@@ -72,7 +85,7 @@ class TickDataLoader:
             self.connected = True
     
     def load_ticks(self, symbol: str, start_time: datetime, 
-                   end_time: datetime, flags: int = mt5.COPY_TICKS_ALL,
+                   end_time: datetime, flags: Optional[int] = None,
                    use_cache: Optional[bool] = None) -> pd.DataFrame:
         """
         Загрузка тиковых данных за указанный период
@@ -101,6 +114,13 @@ class TickDataLoader:
         
         # Загружаем из MT5
         self._ensure_connected()
+        
+        # Используем значение по умолчанию для flags, если не указано
+        if flags is None:
+            if MT5_AVAILABLE:
+                flags = mt5.COPY_TICKS_ALL
+            else:
+                raise ImportError("MetaTrader5 не установлен")
         
         # Убеждаемся, что символ доступен
         if not mt5.symbol_select(symbol, True):
@@ -225,13 +245,14 @@ class TickDataLoader:
                     ticks = None
                     
                     # Метод 1: copy_ticks_range
-                    try:
-                        ticks = mt5.copy_ticks_range(symbol, current_date, day_end, mt5.COPY_TICKS_ALL)
-                    except Exception as e1:
-                        pass
+                    if MT5_AVAILABLE:
+                        try:
+                            ticks = mt5.copy_ticks_range(symbol, current_date, day_end, mt5.COPY_TICKS_ALL)
+                        except Exception as e1:
+                            pass
                     
                     # Метод 2: copy_ticks_from (для более свежих данных)
-                    if (ticks is None or len(ticks) == 0) and current_date >= datetime.now() - timedelta(days=7):
+                    if MT5_AVAILABLE and (ticks is None or len(ticks) == 0) and current_date >= datetime.now() - timedelta(days=7):
                         try:
                             seconds = int((day_end - current_date).total_seconds())
                             if seconds > 0:
@@ -673,7 +694,7 @@ class TickDataLoader:
     
     def disconnect(self):
         """Отключение от MT5"""
-        if self.connected:
+        if self.connected and MT5_AVAILABLE:
             mt5.shutdown()
             self.connected = False
 

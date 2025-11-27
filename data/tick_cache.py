@@ -72,6 +72,7 @@ class TickCache:
         dates = self._get_date_range(start_date, end_date)
         all_ticks = []
         
+        failed_files = []
         for date in dates:
             file_path = self._get_tick_file_path(symbol, date)
             if file_path.exists():
@@ -83,8 +84,24 @@ class TickCache:
                         filtered_df = df[mask]
                         if not filtered_df.empty:
                             all_ticks.append(filtered_df)
+                except (ModuleNotFoundError, ImportError, AttributeError) as e:
+                    # Ошибка совместимости версий numpy/pickle между платформами
+                    error_msg = str(e)
+                    if 'numpy._core' in error_msg or 'numpy.core' in error_msg:
+                        failed_files.append(file_path.name)
+                        # Не выводим каждую ошибку, чтобы не засорять вывод
+                    else:
+                        print(f"Ошибка при загрузке тиков из {file_path}: {e}")
                 except Exception as e:
                     print(f"Ошибка при загрузке тиков из {file_path}: {e}")
+        
+        # Если были ошибки совместимости, выводим общее сообщение
+        if failed_files:
+            print(f"\n⚠️  Обнаружена несовместимость версий numpy при загрузке {len(failed_files)} файлов.")
+            print(f"   Это происходит при переносе pickle файлов между Windows и Linux.")
+            print(f"   Рекомендуется скачать тики с Hugging Face:")
+            print(f"   python paperspace_utils.py hf-download-ticks --repo-id Snail000/Tickmill-XAUUSD-Ticks")
+            print(f"   Или пересохранить тики в совместимом формате на исходной машине.\n")
         
         if all_ticks:
             result = pd.concat(all_ticks).sort_index()

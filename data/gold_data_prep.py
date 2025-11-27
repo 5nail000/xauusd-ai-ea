@@ -121,7 +121,6 @@ class GoldDataPreparator:
             print(f"   Создание минутных свечей из тиков...")
             
             # Создаем минутные свечи из тиков
-            from data.mt5_data_loader import MT5DataLoader
             df = MT5DataLoader.create_minute_candles_from_ticks(ticks_df)
             
             if df.empty:
@@ -352,7 +351,6 @@ class GoldDataPreparator:
                 raise ValueError("Не удалось загрузить минутные данные для создания старших таймфреймов")
             
             # Создаем старшие таймфреймы через агрегацию
-            from data.mt5_data_loader import MT5DataLoader
             higher_timeframes = {}
             
             for tf in self.config.higher_timeframes:

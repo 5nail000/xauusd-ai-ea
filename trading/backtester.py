@@ -595,7 +595,64 @@ class Backtester:
                 stats['drift_detection'] = drift_report
         
         # Добавляем историю equity
-        stats['equity_history'] = pd.DataFrame(equity_history)
+        equity_df = pd.DataFrame(equity_history)
+        stats['equity_history'] = equity_df
+        
+        # Вычисляем дополнительные метрики: Sharpe ratio и максимальный drawdown
+        if len(equity_df) > 1:
+            # Sharpe ratio
+            equity_values = equity_df['equity'].values
+            initial_equity = equity_values[0]
+            
+            # Вычисляем доходности (returns)
+            returns = np.diff(equity_values) / equity_values[:-1]
+            
+            # Sharpe ratio = (mean_return - risk_free_rate) / std_return
+            # Для бэктестинга risk_free_rate = 0
+            if len(returns) > 0 and np.std(returns) > 0:
+                # Годовая доходность (предполагаем торговлю 252 дня в году)
+                # Но для минутных данных нужно пересчитать
+                # Упрощенный расчет: используем среднюю дневную доходность
+                mean_return = np.mean(returns)
+                std_return = np.std(returns)
+                
+                # Если данные минутные, пересчитываем на дневную основу
+                # Предполагаем ~1440 минут в дне (24 часа * 60 минут)
+                if len(equity_df) > 1440:
+                    # Минутные данные
+                    daily_mean = mean_return * 1440
+                    daily_std = std_return * np.sqrt(1440)
+                else:
+                    # Дневные данные или меньше
+                    daily_mean = mean_return
+                    daily_std = std_return
+                
+                # Sharpe ratio (годовой, если есть достаточно данных)
+                if daily_std > 0:
+                    sharpe_ratio = (daily_mean / daily_std) * np.sqrt(252)  # 252 торговых дня в году
+                else:
+                    sharpe_ratio = 0.0
+            else:
+                sharpe_ratio = 0.0
+            
+            # Максимальный drawdown
+            # Находим пики (running maximum)
+            running_max = np.maximum.accumulate(equity_values)
+            
+            # Drawdown = (peak - current) / peak
+            drawdowns = (running_max - equity_values) / running_max
+            
+            # Максимальный drawdown
+            max_drawdown = np.max(drawdowns) * 100  # В процентах
+            
+            # Добавляем метрики в статистику
+            stats['sharpe_ratio'] = sharpe_ratio
+            stats['max_drawdown_pct'] = max_drawdown
+            stats['max_drawdown'] = max_drawdown / 100  # В долях
+        else:
+            stats['sharpe_ratio'] = 0.0
+            stats['max_drawdown_pct'] = 0.0
+            stats['max_drawdown'] = 0.0
         
         print("\n" + "=" * 60)
         print("Результаты бэктестинга")
@@ -643,7 +700,13 @@ class Backtester:
         print(f"  Максимальная прибыль: ${stats['max_profit']:.2f}")
         print(f"  Максимальный убыток: ${stats['max_loss']:.2f}")
         
-        print(f"\n📈 Анализ эффективности:")
+        print(f"\n📈 Риск-метрики:")
+        if 'sharpe_ratio' in stats:
+            print(f"  Sharpe Ratio: {stats['sharpe_ratio']:.3f}")
+        if 'max_drawdown_pct' in stats:
+            print(f"  Максимальный Drawdown: {stats['max_drawdown_pct']:.2f}%")
+        
+        print(f"\n📊 Анализ эффективности:")
         print(f"  Profit Factor: {stats['profit_factor']:.2f}")
         print(f"  Валовой доход: ${stats['gross_profit']:.2f}")
         print(f"  Валовой убыток: ${stats['gross_loss']:.2f}")

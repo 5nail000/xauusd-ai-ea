@@ -12,7 +12,8 @@ from utils.feature_documentation import export_feature_documentation_for_model
 
 def train_model_type(model_type: str, training_months: int = 12, batch_size: int = 32, 
                      num_epochs: int = 100, early_stopping_patience: int = 10,
-                     use_wandb: bool = False, wandb_project: str = 'xauusd-ai-ea'):
+                     use_wandb: bool = False, wandb_project: str = 'xauusd-ai-ea',
+                     use_class_weights: bool = True, class_weight_method: str = 'balanced'):
     """Обучает модель указанного типа"""
     print("=" * 80)
     print(f"ОБУЧЕНИЕ {model_type.upper()} МОДЕЛИ НА {training_months} МЕСЯЦАХ")
@@ -46,6 +47,16 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
     
     num_features = train_loader.dataset.sequences.shape[2]
     print(f"  Размерность фичей: {num_features}")
+    
+    # 2.1. Вычисляем веса классов (если нужно)
+    class_weights = None
+    if use_class_weights:
+        from models.data_loader import compute_class_weights
+        class_weights = compute_class_weights(
+            train_df, 
+            target_column='signal_class',
+            method=class_weight_method
+        )
     
     # Сохраняем scaler для каждого типа модели с метаданными
     scaler_path = f'workspace/prepared/scalers/feature_scaler_{model_type}.pkl'
@@ -121,7 +132,9 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
         model_config=config,
         model_type=model_type,
         use_wandb=use_wandb,
-        wandb_project=wandb_project
+        wandb_project=wandb_project,
+        use_class_weights=use_class_weights,
+        class_weights=class_weights
     )
     
     checkpoint_path = f'workspace/models/checkpoints/{model_type}_model.pth'
@@ -252,6 +265,20 @@ def main():
         help='Название проекта в W&B (по умолчанию: xauusd-ai-ea)'
     )
     
+    parser.add_argument(
+        '--no-class-weights',
+        action='store_true',
+        help='НЕ использовать веса классов (по умолчанию веса включены)'
+    )
+    
+    parser.add_argument(
+        '--class-weight-method',
+        type=str,
+        default='balanced',
+        choices=['balanced', 'inverse', 'sqrt'],
+        help='Метод вычисления весов классов (по умолчанию: balanced)'
+    )
+    
     args = parser.parse_args()
     
     print("\n" + "=" * 80)
@@ -295,7 +322,9 @@ def main():
                 num_epochs=args.epochs,
                 early_stopping_patience=args.patience,
                 use_wandb=args.use_wandb,
-                wandb_project=args.wandb_project
+                wandb_project=args.wandb_project,
+                use_class_weights=not args.no_class_weights,
+                class_weight_method=args.class_weight_method
             )
             all_results[model_type] = results
         except Exception as e:

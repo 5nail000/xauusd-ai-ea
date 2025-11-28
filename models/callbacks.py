@@ -61,13 +61,15 @@ class EarlyStopping:
 class ModelCheckpoint:
     """Callback для сохранения лучших весов модели"""
     
-    def __init__(self, filepath: str, mode: str = 'min', save_best_only: bool = True, model_config=None):
+    def __init__(self, filepath: str, mode: str = 'min', save_best_only: bool = True, 
+                 model_config=None, training_params: Optional[Dict] = None):
         """
         Args:
             filepath: Путь для сохранения модели
             mode: 'min' для минимизации метрики, 'max' для максимизации
             save_best_only: Сохранять только лучшие веса
             model_config: Конфигурация модели для сохранения
+            training_params: Параметры обучения для сохранения в checkpoint
         """
         self.filepath = filepath
         self.mode = mode
@@ -75,6 +77,7 @@ class ModelCheckpoint:
         self.best_score = None
         self.best_epoch = 0
         self.model_config = model_config
+        self.training_params = training_params
     
     def __call__(self, model: torch.nn.Module, score: float, epoch: int):
         """
@@ -114,6 +117,19 @@ class ModelCheckpoint:
             'epoch': epoch,
             'score': self.best_score
         }
+        
+        # Сохраняем параметры обучения
+        if self.training_params is not None:
+            # Преобразуем numpy arrays в списки для сохранения
+            training_params_save = {}
+            for key, value in self.training_params.items():
+                if isinstance(value, np.ndarray):
+                    training_params_save[key] = value.tolist()
+                elif isinstance(value, (np.integer, np.floating)):
+                    training_params_save[key] = float(value)
+                else:
+                    training_params_save[key] = value
+            checkpoint['training_params'] = training_params_save
         
         # Сохраняем конфигурацию модели, если она предоставлена
         if self.model_config is not None:

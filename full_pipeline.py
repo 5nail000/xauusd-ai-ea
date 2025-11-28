@@ -1,5 +1,5 @@
 """
-Единый скрипт для полного цикла: подготовка данных → обучение → бэктестинг
+Единый скрипт для полного цикла: подготовка данных → обучение → Walk-Forward Validation → бэктестинг
 """
 import os
 import sys
@@ -7,6 +7,78 @@ import argparse
 import subprocess
 import shutil
 from pathlib import Path
+from datetime import timedelta
+
+def calculate_walk_forward_params(data_days: int) -> dict:
+    """
+    Вычисляет оптимальные параметры Walk-Forward Validation на основе доступного периода данных
+    
+    Args:
+        data_days: Общее количество дней данных
+    
+    Returns:
+        Словарь с параметрами: train_days, val_days, test_days, step_days
+    """
+    # Минимальные требования для одного fold'а
+    min_train = 30  # Минимум 30 дней для обучения
+    min_val = 7      # Минимум 7 дней для валидации
+    min_test = 7     # Минимум 7 дней для тестирования
+    min_step = 5     # Минимум 5 дней шаг
+    
+    # Максимальные значения (чтобы не было слишком больших окон)
+    max_train = 120  # Максимум 120 дней для обучения
+    max_val = 30     # Максимум 30 дней для валидации
+    max_test = 30    # Максимум 30 дней для тестирования
+    max_step = 30    # Максимум 30 дней шаг
+    
+    # Целевое количество fold'ов (минимум 3, оптимально 5-10)
+    target_folds = max(3, min(10, data_days // 30))
+    
+    # Вычисляем размер одного полного окна (train + val + test)
+    window_size = data_days / target_folds
+    
+    # Train window: 50-60% от доступного периода, но в пределах min/max
+    train_days = int(window_size * 0.55)
+    train_days = max(min_train, min(train_days, max_train, data_days // 3))
+    
+    # Val window: 15-20% от доступного периода
+    val_days = int(window_size * 0.17)
+    val_days = max(min_val, min(val_days, max_val))
+    
+    # Test window: аналогично val
+    test_days = int(window_size * 0.17)
+    test_days = max(min_test, min(test_days, max_test))
+    
+    # Step size: 10-15% от доступного периода
+    step_days = int(window_size * 0.12)
+    step_days = max(min_step, min(step_days, max_step))
+    
+    # Проверяем, что получается достаточно fold'ов
+    total_window = train_days + val_days + test_days
+    available_for_folds = data_days - total_window
+    estimated_folds = max(1, available_for_folds // step_days + 1)
+    
+    # Если fold'ов слишком мало, уменьшаем окна
+    if estimated_folds < 3:
+        # Уменьшаем пропорционально
+        scale = 0.8
+        train_days = max(min_train, int(train_days * scale))
+        val_days = max(min_val, int(val_days * scale))
+        test_days = max(min_test, int(test_days * scale))
+        step_days = max(min_step, int(step_days * scale))
+    
+    # Округляем до целых значений
+    train_days = int(train_days)
+    val_days = int(val_days)
+    test_days = int(test_days)
+    step_days = int(step_days)
+    
+    return {
+        'train_days': train_days,
+        'val_days': val_days,
+        'test_days': test_days,
+        'step_days': step_days
+    }
 
 def run_command(command, description):
     """
@@ -187,6 +259,18 @@ def main():
         help='Порог корреляции для удаления фичей (по умолчанию: 0.95)'
     )
     
+    parser.add_argument(
+        '--analyze-features',
+        action='store_true',
+        help='Провести комплексный анализ фичей после удаления корреляций'
+    )
+    
+    parser.add_argument(
+        '--generate-feature-plots',
+        action='store_true',
+        help='Генерировать графики при анализе фичей (требует --analyze-features)'
+    )
+    
     # Параметры обучения
     parser.add_argument(
         '--encoder-only',
@@ -221,6 +305,20 @@ def main():
         help='Терпение для early stopping (по умолчанию: 10)'
     )
     
+    parser.add_argument(
+        '--no-class-weights',
+        action='store_true',
+        help='НЕ использовать веса классов (по умолчанию веса включены)'
+    )
+    
+    parser.add_argument(
+        '--class-weight-method',
+        type=str,
+        default='balanced',
+        choices=['balanced', 'inverse', 'sqrt'],
+        help='Метод вычисления весов классов (по умолчанию: balanced)'
+    )
+    
     # Параметры бэктестинга
     parser.add_argument(
         '--model-type',
@@ -249,6 +347,36 @@ def main():
         help='Пропустить бэктестинг'
     )
     
+    parser.add_argument(
+        '--use-walk-forward',
+        action='store_true',
+        help='Использовать Walk-Forward Validation вместо обычного обучения (альтернативный метод)'
+    )
+    parser.add_argument(
+        '--walk-forward-train-days',
+        type=int,
+        default=None,
+        help='Размер обучающего окна для Walk-Forward Validation (в днях, по умолчанию вычисляется автоматически)'
+    )
+    parser.add_argument(
+        '--walk-forward-val-days',
+        type=int,
+        default=None,
+        help='Размер валидационного окна для Walk-Forward Validation (в днях, по умолчанию вычисляется автоматически)'
+    )
+    parser.add_argument(
+        '--walk-forward-test-days',
+        type=int,
+        default=None,
+        help='Размер тестового окна для Walk-Forward Validation (в днях, по умолчанию вычисляется автоматически)'
+    )
+    parser.add_argument(
+        '--walk-forward-step-days',
+        type=int,
+        default=None,
+        help='Шаг сдвига окна для Walk-Forward Validation (в днях, по умолчанию вычисляется автоматически)'
+    )
+    
     args = parser.parse_args()
     
     # Определяем период для отображения
@@ -275,9 +403,27 @@ def main():
     print(f"  Удаление коррелированных фичей: {'Да' if args.remove_correlated else 'Нет'}")
     if args.remove_correlated:
         print(f"  Порог корреляции: {args.correlation_threshold}")
+    print(f"  Комплексный анализ фичей: {'Да' if args.analyze_features else 'Нет'}")
+    if args.analyze_features:
+        print(f"  Генерация графиков: {'Да' if args.generate_feature_plots else 'Нет'}")
+    print(f"  Комплексный анализ фичей: {'Да' if args.analyze_features else 'Нет'}")
+    if args.analyze_features:
+        print(f"  Генерация графиков: {'Да' if args.generate_feature_plots else 'Нет'}")
     print(f"  Размер батча: {args.batch_size}")
     print(f"  Эпох: {args.epochs}")
     print(f"  Early stopping patience: {args.patience}")
+    use_class_weights = not args.no_class_weights
+    print(f"  Веса классов: {'Да' if use_class_weights else 'Нет'}")
+    if use_class_weights:
+        print(f"  Метод весов: {args.class_weight_method}")
+    print(f"  Метод обучения: {'Walk-Forward Validation' if args.use_walk_forward else 'Обычное обучение'}")
+    if args.use_walk_forward:
+        # Параметры будут вычислены автоматически, если не указаны
+        if args.walk_forward_train_days is None:
+            print(f"    Параметры: будут вычислены автоматически на основе доступных данных")
+        else:
+            print(f"    Окна: train={args.walk_forward_train_days}d, val={args.walk_forward_val_days or 'auto'}d, test={args.walk_forward_test_days or 'auto'}d")
+            print(f"    Шаг: {args.walk_forward_step_days or 'auto'}d")
     print(f"  Модель для бэктестинга: {args.model_type}")
     print(f"\nЭтапы:")
     print(f"  Подготовка данных: {'Пропущено' if args.skip_prepare else 'Выполнится'}")
@@ -463,6 +609,45 @@ def main():
                         import traceback
                         traceback.print_exc()
                         print("   Продолжаем без оптимизации фичей...")
+            
+            # Комплексный анализ фичей (независимо от удаления корреляций)
+            if args.analyze_features:
+                print("\n" + "=" * 80)
+                print("КОМПЛЕКСНЫЙ АНАЛИЗ ФИЧЕЙ")
+                print("=" * 80)
+                
+                train_path = 'workspace/prepared/features/gold_train.csv'
+                val_path = 'workspace/prepared/features/gold_val.csv'
+                test_path = 'workspace/prepared/features/gold_test.csv'
+                
+                # Проверяем наличие всех файлов
+                missing_files = []
+                for name, path in [('train', train_path), ('val', val_path), ('test', test_path)]:
+                    if not os.path.exists(path):
+                        missing_files.append((name, path))
+                
+                if missing_files:
+                    print(f"\n⚠️  Не найдены файлы для анализа:")
+                    for name, path in missing_files:
+                        print(f"   - {name}: {path}")
+                    print("   Пропускаем анализ фичей...")
+                else:
+                    analyze_cmd = [
+                        sys.executable,
+                        'analyze_features_comprehensive.py',
+                        '--train', train_path,
+                        '--val', val_path,
+                        '--test', test_path,
+                        '--target', 'signal_class',
+                        '--output-dir', 'workspace/features-analysis',
+                        '--top-features', '50'
+                    ]
+                    
+                    if args.generate_feature_plots:
+                        analyze_cmd.append('--generate-plots')
+                    
+                    if not run_command(analyze_cmd, "Комплексный анализ фичей"):
+                        print("\n⚠️  Анализ фичей завершился с предупреждениями, но продолжаем...")
     else:
         print("\n⏭️  Пропуск этапа подготовки данных")
         if not check_data_files():
@@ -470,8 +655,229 @@ def main():
             print("   Запустите без --skip-prepare или подготовьте данные вручную.")
             return 1
     
-    # Этап 2: Обучение моделей
-    if not args.skip_train:
+    # Этап 2: Обучение моделей (обычное или Walk-Forward Validation)
+    if args.use_walk_forward:
+        # Используем Walk-Forward Validation вместо обычного обучения
+        print("\n" + "=" * 80)
+        print("ЭТАП 2: ОБУЧЕНИЕ МОДЕЛЕЙ (WALK-FORWARD VALIDATION)")
+        print("=" * 80)
+        
+        try:
+            import pandas as pd
+            import torch
+            from validation.walk_forward import WalkForwardValidator
+            from models.model_factory import create_model, get_model_config
+            from models.data_loader import create_dataloaders, compute_class_weights
+            from models.trainer import ModelTrainer
+            from models.evaluator import ModelEvaluator
+            
+            # Загружаем все данные для walk-forward validation
+            print("\nЗагрузка данных для Walk-Forward Validation...")
+            train_df = pd.read_csv('workspace/prepared/features/gold_train.csv', 
+                                  index_col=0, parse_dates=True)
+            val_df = pd.read_csv('workspace/prepared/features/gold_val.csv', 
+                                index_col=0, parse_dates=True)
+            test_df = pd.read_csv('workspace/prepared/features/gold_test.csv', 
+                                 index_col=0, parse_dates=True)
+            
+            # Объединяем все данные для walk-forward validation
+            all_data = pd.concat([train_df, val_df, test_df]).sort_index()
+            print(f"  Загружено {len(all_data)} образцов")
+            print(f"  Период: {all_data.index[0]} - {all_data.index[-1]}")
+            
+            # Вычисляем период данных в днях
+            if isinstance(all_data.index, pd.DatetimeIndex):
+                data_period_days = (all_data.index[-1] - all_data.index[0]).days
+            else:
+                # Если нет DatetimeIndex, используем количество образцов как приближение
+                data_period_days = len(all_data) // 1440
+            
+            # Вычисляем параметры Walk-Forward Validation, если не указаны
+            if args.walk_forward_train_days is None:
+                print(f"\n  Вычисление оптимальных параметров Walk-Forward Validation...")
+                print(f"  Доступный период данных: {data_period_days} дней")
+                
+                wf_params = calculate_walk_forward_params(data_period_days)
+                train_days = wf_params['train_days']
+                val_days = wf_params['val_days']
+                test_days = wf_params['test_days']
+                step_days = wf_params['step_days']
+                
+                # Оцениваем количество fold'ов
+                total_window = train_days + val_days + test_days
+                available_for_folds = data_period_days - total_window
+                estimated_folds = max(1, available_for_folds // step_days + 1)
+                
+                print(f"  Вычисленные параметры:")
+                print(f"    Train window: {train_days} дней")
+                print(f"    Val window: {val_days} дней")
+                print(f"    Test window: {test_days} дней")
+                print(f"    Step size: {step_days} дней")
+                print(f"    Ожидаемое количество fold'ов: ~{estimated_folds}")
+            else:
+                # Используем указанные пользователем параметры
+                train_days = args.walk_forward_train_days
+                val_days = args.walk_forward_val_days or 15
+                test_days = args.walk_forward_test_days or 15
+                step_days = args.walk_forward_step_days or 15
+                print(f"\n  Используются указанные параметры:")
+                print(f"    Train window: {train_days} дней")
+                print(f"    Val window: {val_days} дней")
+                print(f"    Test window: {test_days} дней")
+                print(f"    Step size: {step_days} дней")
+            
+            # Функция обучения для одного окна
+            def train_model_for_fold(train_df_fold, val_df_fold, **kwargs):
+                model_type = kwargs.get('model_type', args.model_type)
+                batch_size = kwargs.get('batch_size', args.batch_size)
+                num_epochs = kwargs.get('num_epochs', args.epochs)
+                use_class_weights_fold = kwargs.get('use_class_weights', use_class_weights)
+                class_weight_method = kwargs.get('class_weight_method', args.class_weight_method)
+                
+                # Создаем DataLoader'ы
+                train_loader, val_loader, _, seq_gen = create_dataloaders(
+                    train_df=train_df_fold,
+                    val_df=val_df_fold,
+                    test_df=val_df_fold,
+                    sequence_length=60,
+                    batch_size=batch_size,
+                    target_column='signal_class'
+                )
+                
+                num_features = train_loader.dataset.sequences.shape[2]
+                
+                # Вычисляем веса классов
+                class_weights = None
+                if use_class_weights_fold:
+                    class_weights = compute_class_weights(
+                        train_df_fold,
+                        target_column='signal_class',
+                        method=class_weight_method
+                    )
+                
+                # Создаем модель
+                config = get_model_config(
+                    model_type=model_type,
+                    num_features=num_features,
+                    num_classes=5,
+                    sequence_length=60,
+                    d_model=256,
+                    n_layers=4 if model_type == 'encoder' else 6,
+                    n_heads=8,
+                    dropout=0.1
+                )
+                model = create_model(config)
+                
+                # Создаем trainer
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                trainer = ModelTrainer(
+                    model=model,
+                    device=device,
+                    learning_rate=1e-4,
+                    weight_decay=1e-5,
+                    scheduler_type='cosine',
+                    model_config=config,
+                    model_type=model_type,
+                    use_class_weights=use_class_weights_fold,
+                    class_weights=class_weights
+                )
+                
+                # Обучаем модель
+                checkpoint_path = f'workspace/models/checkpoints/walkforward_{model_type}_fold_temp.pth'
+                trainer.train(
+                    train_loader=train_loader,
+                    val_loader=val_loader,
+                    num_epochs=num_epochs,
+                    early_stopping_patience=args.patience,
+                    checkpoint_path=checkpoint_path,
+                    save_history=False  # Не сохраняем историю для каждого fold
+                )
+                
+                return model
+            
+            # Функция оценки для одного окна
+            def evaluate_model_for_fold(model, test_df_fold, **kwargs):
+                model_type = kwargs.get('model_type', args.model_type)
+                batch_size = kwargs.get('batch_size', args.batch_size)
+                
+                # Создаем DataLoader для теста
+                _, _, test_loader, _ = create_dataloaders(
+                    train_df=test_df_fold.iloc[:100],  # Заглушка
+                    val_df=test_df_fold.iloc[:100],    # Заглушка
+                    test_df=test_df_fold,
+                    sequence_length=60,
+                    batch_size=batch_size,
+                    target_column='signal_class'
+                )
+                
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                evaluator = ModelEvaluator(model, device)
+                metrics = evaluator.evaluate(test_loader)
+                
+                return metrics
+            
+            # Создаем validator
+            validator = WalkForwardValidator(
+                train_size=train_days,
+                val_size=val_days,
+                test_size=test_days,
+                step_size=step_days,
+                use_days=True  # Используем дни, не образцы
+            )
+            
+            # Выполняем walk-forward validation
+            print("\nВыполнение Walk-Forward Validation...")
+            print("   Это может занять некоторое время...\n")
+            
+            results = validator.validate(
+                df=all_data,
+                train_function=train_model_for_fold,
+                evaluate_function=evaluate_model_for_fold,
+                model_type=args.model_type,
+                batch_size=args.batch_size,
+                num_epochs=args.epochs,
+                use_class_weights=use_class_weights,
+                class_weight_method=args.class_weight_method
+            )
+            
+            # Выводим результаты
+            print("\n" + "=" * 80)
+            print("РЕЗУЛЬТАТЫ WALK-FORWARD VALIDATION")
+            print("=" * 80)
+            print(results['summary'])
+            
+            # Сохраняем детальные результаты
+            results_dir = Path('workspace/results/walk_forward')
+            results_dir.mkdir(parents=True, exist_ok=True)
+            
+            results_df = pd.DataFrame(results['folds'])
+            results_path = results_dir / 'walk_forward_results.csv'
+            results_df.to_csv(results_path, index=False)
+            print(f"\n✓ Детальные результаты сохранены: {results_path}")
+            
+            # Сохраняем последнюю модель для бэктестинга
+            # (в реальности можно выбрать лучшую модель по метрикам)
+            last_model_path = f'workspace/models/checkpoints/walkforward_{args.model_type}_fold_temp.pth'
+            final_model_path = f'workspace/models/checkpoints/{args.model_type}_model.pth'
+            
+            if os.path.exists(last_model_path):
+                import shutil
+                shutil.copy2(last_model_path, final_model_path)
+                print(f"\n✓ Последняя модель из Walk-Forward Validation сохранена: {final_model_path}")
+                print(f"   Для бэктестинга будет использована эта модель.")
+                print(f"   Рекомендуется выбрать лучшую модель на основе метрик из walk_forward_results.csv")
+            else:
+                print(f"\n⚠️  Модель не найдена: {last_model_path}")
+                print(f"   Бэктестинг может быть невозможен.")
+            
+        except Exception as e:
+            print(f"\n❌ Ошибка при выполнении Walk-Forward Validation: {e}")
+            import traceback
+            traceback.print_exc()
+            return 1
+    
+    elif not args.skip_train:
+        # Обычное обучение
         # Определяем, какие модели обучать
         if args.encoder_only:
             models_to_train = ['encoder']
@@ -514,6 +920,13 @@ def main():
             elif args.timeseries_only:
                 train_cmd.append('--timeseries-only')
             
+            if not args.no_class_weights:
+                # По умолчанию веса включены, передаем только если нужно отключить
+                pass  # Веса включены по умолчанию
+            else:
+                train_cmd.append('--no-class-weights')
+            train_cmd.extend(['--class-weight-method', args.class_weight_method])
+            
             if not run_command(train_cmd, "ЭТАП 2: Обучение моделей"):
                 print("\n❌ Ошибка на этапе обучения. Продолжаем с бэктестингом...")
                 # Проверяем, есть ли хотя бы одна модель для бэктестинга
@@ -538,7 +951,7 @@ def main():
         # Бэктестинг запускается через Python API, а не через subprocess
         # (так как нужно передать параметры модели)
         print("\n" + "=" * 80)
-        print("ЭТАП 3: Бэктестинг")
+        print("ЭТАП 4: БЭКТЕСТИНГ")
         print("=" * 80)
         
         try:

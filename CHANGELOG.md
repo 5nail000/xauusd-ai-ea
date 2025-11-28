@@ -7,6 +7,41 @@
 
 ## [Unreleased]
 
+### Добавлено
+
+- **Адаптивные умолчания для Walk-Forward Validation**
+  - Параметры Walk-Forward Validation теперь вычисляются автоматически на основе доступного периода данных
+  - Функция `calculate_walk_forward_params()` анализирует период данных и вычисляет оптимальные значения для train/val/test/step окон
+  - Поддерживает любой период данных (не только 3/6/12 месяцев)
+  - Цель: получить минимум 3-5 fold'ов для надежной валидации
+  - Пользователь может переопределить параметры через CLI аргументы
+  - Автоматически адаптируется под объем данных: для малых периодов уменьшает окна, для больших - увеличивает
+
+### Добавлено
+
+- **Walk-Forward Validation интегрирован в основной пайплайн**
+  - Добавлен этап Walk-Forward Validation в `full_pipeline.py` (по умолчанию включен)
+  - Параметры: `--skip-walk-forward`, `--walk-forward-train-days`, `--walk-forward-val-days`, `--walk-forward-test-days`, `--walk-forward-step-days`
+  - Результаты сохраняются в `workspace/results/walk_forward/walk_forward_results.csv`
+  - Walk-Forward Validation выполняется после обучения, перед бэктестингом
+
+- **Веса классов включены по умолчанию**
+  - `use_class_weights=True` по умолчанию во всех скриптах обучения
+  - Добавлен флаг `--no-class-weights` для отключения весов классов
+  - Метод по умолчанию: `balanced` (sklearn style)
+
+- **Расширенное логирование параметров обучения**
+  - Все параметры обучения сохраняются в `training_config.json` в директории TensorBoard логов
+  - Параметры логируются в TensorBoard (текстовый формат)
+  - Параметры логируются в W&B config
+  - Параметры сохраняются в checkpoint файлы моделей
+  - Логируемые параметры: learning_rate, weight_decay, scheduler_type, use_class_weights, class_weight_method, class_weights, dropout, d_model, n_layers, n_heads, sequence_length, num_classes, num_features, device, num_parameters
+
+- **Реорганизация примеров**
+  - `example_usage.py` перемещен в `examples/example_usage.py`
+  - `test_pipeline.py` перемещен в `examples/test_pipeline.py`
+  - Обновлены ссылки в документации
+
 ### Исправлено
 - **Исправлено двойное копирование при скачивании тиков с Hugging Face**
   - Метод `download_ticks` в `HuggingFaceDownloader` теперь перемещает файлы вместо копирования
@@ -20,6 +55,22 @@
   - Система больше не зависает при загрузке большого количества файлов тиков
 
 ### Добавлено
+- **Walk-Forward Validation для временных рядов**
+  - Новый модуль `validation/walk_forward.py` с классом `WalkForwardValidator`
+  - Реалистичная валидация модели с движущимся окном (симулирует реальную торговлю)
+  - Разбиение данных на несколько окон: train -> val -> test
+  - Агрегация результатов по всем окнам (mean, std, min, max, median)
+  - Поддержка работы с днями или образцами
+  - Пример использования: `examples/walk_forward_example.py`
+  - Преимущества: обнаружение переобучения, проверка стабильности модели, адаптация к изменениям рынка
+- **Class Weights для борьбы с несбалансированностью классов**
+  - Функция `compute_class_weights()` в `models/data_loader.py`
+  - Три метода вычисления весов: 'balanced' (sklearn style), 'inverse', 'sqrt'
+  - Интеграция в `ModelTrainer` через параметры `use_class_weights` и `class_weights`
+  - Автоматическое вычисление весов на основе распределения классов в обучающей выборке
+  - CLI параметры: `--use-class-weights` и `--class-weight-method` в `train_all_models.py`, `train_model.py`, `full_pipeline.py`
+  - Визуализация распределения классов и вычисленных весов
+  - Решает проблему, когда модель учится предсказывать только доминирующий класс (Uncertainty)
 - **Уровни поддержки/сопротивления и Fibonacci Retracements**
   - Новый модуль `features/level_features.py` с реализацией уровней
   - **Support/Resistance Levels**: автоматическое определение уровней через кластеризацию локальных экстремумов

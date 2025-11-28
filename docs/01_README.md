@@ -28,7 +28,10 @@
 │   ├── feature_config.py    # Конфигурация параметров фичей
 │   └── __init__.py
 ├── requirements.txt         # Зависимости проекта
-├── example_usage.py         # Пример использования
+├── examples/
+│   ├── example_usage.py    # Пример использования
+│   ├── test_pipeline.py    # Тестовый цикл
+│   └── walk_forward_example.py  # Пример Walk-Forward Validation
 └── README.md
 ```
 
@@ -105,7 +108,7 @@ python backtest_strategy.py
 - **`train_all_models.py`** - обучение всех моделей автоматически (с экспортом документации)
 - **`train_model.py`** - обучение одной модели (с экспортом документации)
 - **`backtest_strategy.py`** - бэктестинг торговой стратегии
-- **`test_pipeline.py`** - тестовый цикл на небольшом объеме данных
+- **`examples/test_pipeline.py`** - тестовый цикл на небольшом объеме данных
 - **`validate_features.py`** - валидация соответствия фичей между данными и моделью
 - **`export_features_doc.py`** - экспорт документации по фичам для существующей модели
 - **`analyze_feature_correlation.py`** - анализ корреляции фичей

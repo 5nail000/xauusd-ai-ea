@@ -18,6 +18,8 @@ def main():
     parser = argparse.ArgumentParser(description='Обучение Transformer модели')
     parser.add_argument('--use-wandb', action='store_true', help='Использовать Weights & Biases для логирования')
     parser.add_argument('--wandb-project', type=str, default='xauusd-ai-ea', help='Название проекта в W&B')
+    parser.add_argument('--no-class-weights', action='store_true', help='НЕ использовать веса классов (по умолчанию веса включены)')
+    parser.add_argument('--class-weight-method', type=str, default='balanced', choices=['balanced', 'inverse', 'sqrt'], help='Метод вычисления весов классов')
     args = parser.parse_args()
     
     print("=" * 60)
@@ -44,6 +46,17 @@ def main():
         batch_size=32,
         target_column='signal_class'
     )
+    
+    # 2.1. Вычисляем веса классов (если нужно)
+    class_weights = None
+    use_class_weights = not args.no_class_weights
+    if use_class_weights:
+        from models.data_loader import compute_class_weights
+        class_weights = compute_class_weights(
+            train_df, 
+            target_column='signal_class',
+            method=args.class_weight_method
+        )
     
     # Сохраняем scaler для использования в продакшене с метаданными
     num_features = train_loader.dataset.sequences.shape[2]
@@ -98,7 +111,9 @@ def main():
         model_config=config,
         model_type=model_type,
         use_wandb=args.use_wandb,
-        wandb_project=args.wandb_project
+        wandb_project=args.wandb_project,
+        use_class_weights=use_class_weights,
+        class_weights=class_weights
     )
     
     trainer.train(

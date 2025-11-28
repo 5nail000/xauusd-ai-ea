@@ -10,6 +10,7 @@ from tqdm import tqdm
 import numpy as np
 from typing import Optional, Dict
 import os
+import json
 from datetime import datetime
 
 from models.callbacks import EarlyStopping, ModelCheckpoint, LearningRateScheduler, TrainingHistory
@@ -29,7 +30,9 @@ class ModelTrainer:
                  model_config=None,
                  use_wandb: bool = False,
                  wandb_project: str = "xauusd-ai-ea",
-                 model_type: str = "encoder"):
+                 model_type: str = "encoder",
+                 use_class_weights: bool = False,
+                 class_weights: Optional[torch.Tensor] = None):
         """
         Args:
             model: Модель для обучения
@@ -41,6 +44,9 @@ class ModelTrainer:
             use_wandb: Использовать ли Weights & Biases для логирования
             wandb_project: Название проекта в W&B
             model_type: Тип модели (для логирования)
+            use_class_weights: Использовать ли веса классов для несбалансированных данных
+            class_weights: Tensor с весами классов [weight_0, weight_1, ...]
+                          Если None и use_class_weights=True, веса должны быть вычислены заранее
         """
         self.model = model
         self.device = device if device is not None else torch.device(
@@ -51,6 +57,12 @@ class ModelTrainer:
         self.use_wandb = use_wandb
         self.wandb_project = wandb_project
         self.model_type = model_type
+        self.use_class_weights = use_class_weights
+        self.class_weights = class_weights
+        self.class_weight_method = getattr(self, 'class_weight_method', None)
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.scheduler_type = scheduler_type
         
         # Оптимизатор
         self.optimizer = optim.AdamW(
@@ -60,7 +72,17 @@ class ModelTrainer:
         )
         
         # Loss функция (CrossEntropyLoss для классификации)
-        self.criterion = nn.CrossEntropyLoss()
+        if use_class_weights and class_weights is not None:
+            # Перемещаем веса на нужное устройство
+            class_weights = class_weights.to(self.device)
+            self.criterion = nn.CrossEntropyLoss(weight=class_weights)
+            print(f"✓ Используются веса классов: {class_weights.cpu().numpy()}")
+        else:
+            self.criterion = nn.CrossEntropyLoss()
+            if use_class_weights:
+                print("⚠️  use_class_weights=True, но class_weights не предоставлен. Веса не используются.")
+            else:
+                print("✓ Веса классов не используются")
         
         # Learning rate scheduler
         self.lr_scheduler = LearningRateScheduler(
@@ -78,6 +100,33 @@ class ModelTrainer:
         os.makedirs(log_dir, exist_ok=True)
         self.writer = SummaryWriter(log_dir=log_dir)
         
+        # Сохраняем параметры обучения для логирования
+        self.training_params = {
+            'model_type': model_type,
+            'learning_rate': learning_rate,
+            'weight_decay': weight_decay,
+            'scheduler_type': scheduler_type,
+            'use_class_weights': use_class_weights,
+            'class_weight_method': self.class_weight_method,
+            'class_weights': class_weights.cpu().numpy().tolist() if class_weights is not None else None,
+            'device': str(self.device),
+            'num_parameters': sum(p.numel() for p in model.parameters()),
+            'dropout': model_config.dropout if model_config else None,
+            'd_model': model_config.d_model if model_config else None,
+            'n_layers': model_config.n_layers if model_config else None,
+            'n_heads': model_config.n_heads if model_config else None,
+            'sequence_length': model_config.sequence_length if model_config else None,
+            'num_classes': model_config.num_classes if model_config else None,
+            'num_features': model_config.num_features if model_config else None
+        }
+        
+        # Логируем параметры в TensorBoard
+        params_text = "\n".join([f"{k}: {v}" for k, v in self.training_params.items() if v is not None])
+        self.writer.add_text('Training_Parameters', params_text, 0)
+        
+        # Сохраняем параметры в файл
+        self._save_training_config(log_dir)
+        
         # Weights & Biases
         if use_wandb:
             try:
@@ -85,13 +134,7 @@ class ModelTrainer:
                 wandb.init(
                     project=wandb_project,
                     name=f"{model_type}_{timestamp}",
-                    config={
-                        'model_type': model_type,
-                        'learning_rate': learning_rate,
-                        'weight_decay': weight_decay,
-                        'scheduler_type': scheduler_type,
-                        'device': str(self.device)
-                    }
+                    config=self.training_params
                 )
                 self.wandb = wandb
             except ImportError:
@@ -106,6 +149,32 @@ class ModelTrainer:
         if use_wandb:
             print(f"W&B логирование: включено (проект: {wandb_project})")
         print(f"TensorBoard логи: {log_dir}")
+        print(f"\nПараметры обучения:")
+        print(f"  Learning Rate: {learning_rate}")
+        print(f"  Weight Decay: {weight_decay}")
+        print(f"  Scheduler: {scheduler_type}")
+        print(f"  Class Weights: {'Да' if use_class_weights and class_weights is not None else 'Нет'}")
+        if use_class_weights and class_weights is not None:
+            print(f"  Веса классов: {class_weights.cpu().numpy()}")
+    
+    def _save_training_config(self, log_dir: str):
+        """Сохраняет конфигурацию обучения в файл"""
+        config_path = os.path.join(log_dir, 'training_config.json')
+        
+        # Преобразуем numpy arrays в списки для JSON
+        config_dict = {}
+        for key, value in self.training_params.items():
+            if isinstance(value, np.ndarray):
+                config_dict[key] = value.tolist()
+            elif isinstance(value, (np.integer, np.floating)):
+                config_dict[key] = float(value)
+            else:
+                config_dict[key] = value
+        
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config_dict, f, indent=2, ensure_ascii=False)
+        
+        print(f"  Конфигурация обучения сохранена: {config_path}")
     
     def train_epoch(self, train_loader: DataLoader) -> Dict[str, float]:
         """

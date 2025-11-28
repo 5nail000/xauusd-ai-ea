@@ -363,3 +363,73 @@ def create_dataloaders(train_df: pd.DataFrame,
     
     return train_loader, val_loader, test_loader, seq_gen
 
+
+def compute_class_weights(train_df: pd.DataFrame, 
+                         target_column: str = 'signal_class',
+                         method: str = 'balanced') -> torch.Tensor:
+    """
+    Вычисляет веса классов для несбалансированных данных
+    
+    Идея: увеличить штраф за ошибки на редких классах, чтобы модель
+    лучше училась различать все классы, а не только доминирующий.
+    
+    Args:
+        train_df: DataFrame с обучающими данными
+        target_column: Название колонки с целевой переменной
+        method: Метод вычисления весов
+            - 'balanced': sklearn style (n_samples / (n_classes * count[i]))
+            - 'inverse': 1 / count[i] (простое обратное количество)
+            - 'sqrt': sqrt(n_samples / count[i]) (более мягкий эффект)
+    
+    Returns:
+        Tensor с весами классов [weight_class_0, weight_class_1, ...]
+        Веса нормализованы так, что среднее значение = 1.0
+    """
+    if target_column not in train_df.columns:
+        raise ValueError(f"Колонка '{target_column}' не найдена в DataFrame")
+    
+    # Подсчитываем количество образцов каждого класса
+    class_counts = train_df[target_column].value_counts().sort_index()
+    n_samples = len(train_df)
+    n_classes = len(class_counts)
+    
+    print(f"\n{'='*60}")
+    print(f"РАСПРЕДЕЛЕНИЕ КЛАССОВ В ОБУЧАЮЩЕЙ ВЫБОРКЕ")
+    print(f"{'='*60}")
+    for class_id, count in class_counts.items():
+        pct = count / n_samples * 100
+        print(f"  Класс {class_id}: {count:6d} образцов ({pct:5.2f}%)")
+    
+    # Вычисляем веса
+    weights = []
+    for class_id in sorted(class_counts.index):
+        count = class_counts[class_id]
+        
+        if method == 'balanced':
+            # sklearn style: n_samples / (n_classes * count[i])
+            # Это стандартный метод, который хорошо работает в большинстве случаев
+            weight = n_samples / (n_classes * count)
+        elif method == 'inverse':
+            # Простое обратное количество (может быть слишком агрессивным)
+            weight = 1.0 / count
+        elif method == 'sqrt':
+            # Квадратный корень для более мягкого эффекта
+            # Полезно, если balanced дает слишком сильный эффект
+            weight = np.sqrt(n_samples / count)
+        else:
+            raise ValueError(f"Неизвестный метод: {method}. Доступны: 'balanced', 'inverse', 'sqrt'")
+        
+        weights.append(weight)
+    
+    # Нормализуем веса (чтобы среднее было 1.0)
+    # Это помогает сохранить масштаб loss функции
+    weights = np.array(weights)
+    weights = weights / weights.mean()
+    
+    print(f"\nВЕСА КЛАССОВ (метод: {method}):")
+    for class_id, weight in zip(sorted(class_counts.index), weights):
+        print(f"  Класс {class_id}: {weight:.4f}")
+    print(f"{'='*60}\n")
+    
+    return torch.FloatTensor(weights)
+

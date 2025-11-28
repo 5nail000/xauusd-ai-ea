@@ -861,7 +861,6 @@ def main():
             final_model_path = f'workspace/models/checkpoints/{args.model_type}_model.pth'
             
             if os.path.exists(last_model_path):
-                import shutil
                 shutil.copy2(last_model_path, final_model_path)
                 print(f"\n✓ Последняя модель из Walk-Forward Validation сохранена: {final_model_path}")
                 print(f"   Для бэктестинга будет использована эта модель.")

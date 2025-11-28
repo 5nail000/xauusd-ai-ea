@@ -135,20 +135,24 @@ class SequenceGenerator:
         else:
             feature_data = self.scaler.transform(feature_data)
         
-        # Создаем последовательности
-        sequences = []
-        targets = []
+        # Вычисляем количество последовательностей
+        n_samples = len(feature_data) - self.sequence_length
+        n_features = feature_data.shape[1]
+        
+        # Предварительно выделяем память для массивов (экономия памяти)
+        # Используем float32 вместо float64 для экономии памяти (в 2 раза меньше)
+        sequences = np.zeros((n_samples, self.sequence_length, n_features), dtype=np.float32)
+        targets = np.zeros(n_samples, dtype=np.int64)
+        
+        # Заполняем массивы напрямую (избегаем создания промежуточных списков)
+        target_values = df_clean[self.target_column].values
         
         for i in range(self.sequence_length, len(feature_data)):
-            sequence = feature_data[i - self.sequence_length:i]
-            target = df_clean[self.target_column].iloc[i]
-            
-            sequences.append(sequence)
-            targets.append(target)
+            idx = i - self.sequence_length
+            sequences[idx] = feature_data[i - self.sequence_length:i].astype(np.float32)
+            targets[idx] = target_values[i]
         
-        # Используем float32 вместо float64 для экономии памяти (в 2 раза меньше)
-        # Это критично для больших датасетов (155k+ образцов с 430 фичами)
-        return np.array(sequences, dtype=np.float32), np.array(targets, dtype=np.int64)
+        return sequences, targets
     
     def fit_scaler(self, df: pd.DataFrame):
         """Обучает scaler на данных"""

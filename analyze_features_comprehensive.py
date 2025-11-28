@@ -40,18 +40,30 @@ def compute_basic_statistics(df: pd.DataFrame, feature_columns: List[str]) -> pd
         if len(col_data) == 0:
             continue
         
+        # Проверяем, является ли колонка числовой
+        is_numeric = pd.api.types.is_numeric_dtype(col_data)
+        
+        # Вычисляем статистику для бесконечных значений только для числовых типов
+        if is_numeric:
+            try:
+                infinite_count = np.isinf(col_data).sum()
+            except (TypeError, ValueError):
+                infinite_count = 0
+        else:
+            infinite_count = 0
+        
         stats_dict = {
             'feature': col,
             'count': len(col_data),
             'missing': df[col].isna().sum(),
             'missing_pct': (df[col].isna().sum() / len(df)) * 100,
-            'zeros': (col_data == 0).sum(),
-            'zeros_pct': ((col_data == 0).sum() / len(col_data)) * 100 if len(col_data) > 0 else 0,
-            'infinite': np.isinf(col_data).sum(),
-            'infinite_pct': (np.isinf(col_data).sum() / len(col_data)) * 100 if len(col_data) > 0 else 0,
+            'zeros': (col_data == 0).sum() if is_numeric else 0,
+            'zeros_pct': ((col_data == 0).sum() / len(col_data)) * 100 if (len(col_data) > 0 and is_numeric) else 0,
+            'infinite': infinite_count,
+            'infinite_pct': (infinite_count / len(col_data)) * 100 if len(col_data) > 0 else 0,
         }
         
-        if pd.api.types.is_numeric_dtype(col_data):
+        if is_numeric:
             stats_dict.update({
                 'mean': col_data.mean(),
                 'std': col_data.std(),

@@ -241,7 +241,8 @@ def aggregate_second_candles_features(second_candles: Dict[int, pd.DataFrame],
 
 def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
                                     ticks_data: Dict[datetime, pd.DataFrame],
-                                    intervals: List[int]) -> pd.DataFrame:
+                                    intervals: List[int],
+                                    skip_if_exists: bool = True) -> pd.DataFrame:
     """
     Добавляет тиковые фичи к минутным данным
     
@@ -249,11 +250,19 @@ def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
         df_minute: DataFrame с минутными данными
         ticks_data: Словарь {minute_time: ticks_df} с тиковыми данными
         intervals: Список интервалов для секундных свечей
+        skip_if_exists: Пропустить обработку, если тиковые фичи уже есть (по умолчанию: True)
     
     Returns:
         DataFrame с добавленными тиковыми фичами
     """
     df = df_minute.copy()
+    
+    # Проверяем, есть ли уже тиковые фичи
+    if skip_if_exists:
+        tick_cols = [col for col in df.columns if col.startswith('tick_')]
+        if len(tick_cols) > 0:
+            print(f"[{_get_timestamp()}] ✓ Тиковые фичи уже присутствуют ({len(tick_cols)} колонок), пропускаем обработку...")
+            return df
     
     # Диагностика: статистика по тикам
     total_minutes = len(df.index)

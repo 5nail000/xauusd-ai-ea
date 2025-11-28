@@ -560,7 +560,7 @@ class GoldDataPreparator:
         # Сохраняем результат в кэш
         if use_cache:
             try:
-                cache_file = self._get_cache_file_path(symbol, months, end_date, load_ticks, load_higher_tf)
+                cache_file = self._get_cache_file_path(symbol, period_label, end_date, load_ticks, load_higher_tf)
                 df_with_targets.to_pickle(cache_file)
                 file_size_mb = cache_file.stat().st_size / 1024 / 1024
                 print(f"[{_get_timestamp()}] ✓ Данные сохранены в кэш: {cache_file}")

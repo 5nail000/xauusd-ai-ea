@@ -1,5 +1,8 @@
 """
-Утилиты для работы с Paperspace и Hugging Face: загрузка данных для обучения и скачивание результатов
+Утилиты для работы с облачными сервисами (Paperspace и Hugging Face):
+- Загрузка данных для обучения и скачивание результатов
+- Работа с тиковыми данными
+- Загрузка и скачивание результатов анализа фичей (--analyze-features)
 """
 import os
 import tarfile
@@ -47,7 +50,7 @@ class PaperspaceUploader:
         self.path = path
         self.user = user
     
-    def create_training_archive(self, 
+    def create_paperspace_training_archive(self, 
                                output_file: str,
                                include_ticks: bool = False,
                                include_cache: bool = False,
@@ -135,7 +138,7 @@ class PaperspaceUploader:
         
         return True
     
-    def upload_training_data(self, archive_path: str, method: str = 'scp') -> bool:
+    def upload_paperspace_training_data(self, archive_path: str, method: str = 'scp') -> bool:
         """
         Загружает архив на Paperspace
         
@@ -202,6 +205,10 @@ class PaperspaceUploader:
         except FileNotFoundError:
             print("❌ RSYNC не найден. Установите rsync.")
             return False
+    
+    # Алиасы для обратной совместимости
+    create_training_archive = create_paperspace_training_archive
+    upload_training_data = upload_paperspace_training_data
 
 
 class PaperspaceDownloader:
@@ -212,9 +219,9 @@ class PaperspaceDownloader:
         self.path = path
         self.user = user
     
-    def create_results_archive(self, output_file: str) -> bool:
+    def create_paperspace_results_archive(self, output_file: str) -> bool:
         """
-        Создает tar.gz архив с результатами обучения
+        Создает tar.gz архив с результатами обучения для Paperspace
         
         Args:
             output_file: Путь к выходному файлу
@@ -278,7 +285,7 @@ class PaperspaceDownloader:
         
         return True
     
-    def download_results(self, remote_archive: str, local_path: str = '.', method: str = 'scp') -> bool:
+    def download_paperspace_results(self, remote_archive: str, local_path: str = '.', method: str = 'scp') -> bool:
         """
         Скачивает результаты обучения с Paperspace
         
@@ -351,7 +358,7 @@ class PaperspaceDownloader:
             print("❌ RSYNC не найден. Установите rsync.")
             return False
     
-    def list_remote_files(self, remote_path: str = None) -> bool:
+    def list_paperspace_files(self, remote_path: str = None) -> bool:
         """
         Выводит список файлов на Paperspace
         
@@ -382,6 +389,11 @@ class PaperspaceDownloader:
         except FileNotFoundError:
             print("❌ SSH не найден. Установите OpenSSH.")
             return False
+    
+    # Алиасы для обратной совместимости
+    create_results_archive = create_paperspace_results_archive
+    download_results = download_paperspace_results
+    list_remote_files = list_paperspace_files
 
 
 class HuggingFaceUploader:
@@ -403,7 +415,7 @@ class HuggingFaceUploader:
         if not self.token:
             print("⚠️  Предупреждение: HF_TOKEN не установлен. Может потребоваться авторизация.")
     
-    def upload_ticks(self, ticks_dir: str = 'workspace/raw_data/ticks', 
+    def upload_hf_ticks(self, ticks_dir: str = 'workspace/raw_data/ticks', 
                      commit_message: str = "Upload tick data") -> bool:
         """
         Загружает тиковые данные на Hugging Face
@@ -458,7 +470,102 @@ class HuggingFaceUploader:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return False
     
-    def upload_training_data(self, 
+    def upload_hf_feature_analysis(self, 
+                               analysis_dir: str = 'workspace/features-analysis',
+                               commit_message: str = "Upload feature analysis results") -> bool:
+        """
+        Загружает результаты анализа фичей (--analyze-features) на Hugging Face
+        
+        Args:
+            analysis_dir: Директория с результатами анализа (по умолчанию: workspace/features-analysis)
+            commit_message: Сообщение коммита
+        """
+        print("=" * 60)
+        print("Загрузка результатов анализа фичей на Hugging Face")
+        print("=" * 60)
+        
+        analysis_path = Path(analysis_dir)
+        if not analysis_path.exists():
+            print(f"❌ Директория {analysis_dir} не найдена!")
+            print("   Сначала запустите: python full_pipeline.py --analyze-features")
+            return False
+        
+        # Проверяем наличие основных файлов
+        expected_files = [
+            'feature_statistics.csv',
+            'feature_importance.csv',
+            'outliers_analysis.csv',
+            'feature_by_class_statistics.csv',
+            'feature_analysis_report.html'
+        ]
+        
+        found_files = []
+        for file_name in expected_files:
+            file_path = analysis_path / file_name
+            if file_path.exists():
+                found_files.append(file_name)
+                size = file_path.stat().st_size
+                print(f"✓ Найден: {file_name} ({format_size(size)})")
+            else:
+                print(f"⚠ Отсутствует: {file_name}")
+        
+        if not found_files:
+            print("❌ Не найдено ни одного файла результатов анализа!")
+            return False
+        
+        # Проверяем наличие директории plots (опционально)
+        plots_dir = analysis_path / 'plots'
+        has_plots = plots_dir.exists() and plots_dir.is_dir()
+        if has_plots:
+            plots_size = get_directory_size(plots_dir)
+            print(f"✓ Найдена директория plots ({format_size(plots_size)})")
+        
+        size = get_directory_size(analysis_path)
+        print(f"\n📊 Общий размер результатов: {format_size(size)}")
+        print(f"📁 Репозиторий: {self.repo_id}")
+        print(f"📂 Директория: {analysis_dir}")
+        
+        try:
+            # Создаем временную директорию для загрузки
+            temp_dir = Path('temp_hf_upload')
+            temp_analysis_dir = temp_dir / 'features-analysis'
+            temp_analysis_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Копируем все файлы и директории
+            print(f"\nПодготовка данных...")
+            for item in analysis_path.iterdir():
+                if item.is_file():
+                    shutil.copy2(item, temp_analysis_dir / item.name)
+                    print(f"  Скопирован файл: {item.name}")
+                elif item.is_dir():
+                    shutil.copytree(item, temp_analysis_dir / item.name, dirs_exist_ok=True)
+                    print(f"  Скопирована директория: {item.name}")
+            
+            # Загружаем на Hugging Face
+            print(f"\nЗагрузка на Hugging Face...")
+            upload_folder(
+                folder_path=str(temp_dir),
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                token=self.token,
+                commit_message=commit_message
+            )
+            
+            # Удаляем временную директорию
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            print(f"\n✓ Результаты анализа фичей успешно загружены на Hugging Face!")
+            print(f"  Репозиторий: https://huggingface.co/datasets/{self.repo_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при загрузке: {e}")
+            import traceback
+            traceback.print_exc()
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False
+    
+    def upload_hf_training_data(self,
                              include_scalers: bool = True,
                              include_cache: bool = False,
                              commit_message: str = "Upload training data") -> bool:
@@ -558,6 +665,11 @@ class HuggingFaceUploader:
             traceback.print_exc()
             shutil.rmtree(temp_dir, ignore_errors=True)
             return False
+    
+    # Алиасы для обратной совместимости
+    upload_ticks = upload_hf_ticks
+    upload_feature_analysis = upload_hf_feature_analysis
+    upload_training_data = upload_hf_training_data
 
 
 class HuggingFaceDownloader:
@@ -576,7 +688,7 @@ class HuggingFaceDownloader:
         self.api = HfApi(token=token)
         self.token = token or os.getenv('HF_TOKEN')
     
-    def download_ticks(self, local_dir: str = 'workspace/raw_data/ticks') -> bool:
+    def download_hf_ticks(self, local_dir: str = 'workspace/raw_data/ticks') -> bool:
         """
         Скачивает тиковые данные с Hugging Face
         
@@ -637,7 +749,7 @@ class HuggingFaceDownloader:
             traceback.print_exc()
             return False
     
-    def download_training_data(self, local_dir: str = 'workspace') -> bool:
+    def download_hf_training_data(self, local_dir: str = 'workspace') -> bool:
         """
         Скачивает данные для обучения с Hugging Face
         
@@ -673,27 +785,103 @@ class HuggingFaceDownloader:
             import traceback
             traceback.print_exc()
             return False
+    
+    def download_hf_feature_analysis(self, local_dir: str = 'workspace/features-analysis') -> bool:
+        """
+        Скачивает результаты анализа фичей с Hugging Face
+        
+        Args:
+            local_dir: Локальная директория для сохранения (по умолчанию: workspace/features-analysis)
+        """
+        print("=" * 60)
+        print("Скачивание результатов анализа фичей с Hugging Face")
+        print("=" * 60)
+        
+        print(f"📁 Репозиторий: {self.repo_id}")
+        print(f"📂 Локальная директория: {local_dir}")
+        
+        try:
+            local_path = Path(local_dir)
+            local_path.mkdir(parents=True, exist_ok=True)
+            
+            # Скачиваем данные
+            print(f"\nСкачивание данных...")
+            downloaded_path = snapshot_download(
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                local_dir=str(local_path.parent),
+                token=self.token
+            )
+            
+            # Если данные скачались в поддиректорию features-analysis, перемещаем их
+            downloaded_path = Path(downloaded_path)
+            analysis_subdir = downloaded_path / 'features-analysis'
+            if analysis_subdir.exists() and analysis_subdir.is_dir():
+                # Данные в поддиректории features-analysis, перемещаем содержимое
+                print(f"  Перемещение данных из поддиректории...")
+                for item in analysis_subdir.iterdir():
+                    dest = local_path / item.name
+                    if item.is_file():
+                        if dest.exists():
+                            dest.unlink()  # Удаляем существующий файл
+                        shutil.move(str(item), str(dest))  # Перемещаем
+                    else:
+                        if dest.exists():
+                            shutil.rmtree(dest)
+                        shutil.move(str(item), str(dest))  # Перемещаем директорию
+                
+                # Удаляем пустую поддиректорию features-analysis после перемещения
+                try:
+                    analysis_subdir.rmdir()  # Удаляем пустую директорию
+                except OSError:
+                    # Если директория не пустая, удаляем рекурсивно
+                    shutil.rmtree(analysis_subdir)
+            
+            print(f"\n✓ Результаты анализа фичей успешно скачаны!")
+            print(f"  Локальная директория: {local_dir}")
+            print(f"\n  Доступные файлы:")
+            for item in local_path.iterdir():
+                if item.is_file():
+                    size = item.stat().st_size
+                    print(f"    - {item.name} ({format_size(size)})")
+                elif item.is_dir():
+                    size = get_directory_size(item)
+                    print(f"    - {item.name}/ ({format_size(size)})")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при скачивании: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    # Алиасы для обратной совместимости
+    download_ticks = download_hf_ticks
+    download_training_data = download_hf_training_data
+    download_feature_analysis = download_hf_feature_analysis
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Утилиты для работы с Paperspace и Hugging Face',
+        description='Утилиты для работы с облачными сервисами (Paperspace и Hugging Face)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Примеры использования:
 
 Paperspace:
-  python paperspace_utils.py upload-training --host paperspace.com --path /storage/
-  python paperspace_utils.py create-training-archive --output training_data.tar.gz
-  python paperspace_utils.py download-results --host paperspace.com --path /storage/results.tar.gz
-  python paperspace_utils.py create-results-archive --output results.tar.gz
-  python paperspace_utils.py list-remote-files --host paperspace.com --path /storage/
+  python cloud_services.py upload-training --host paperspace.com --path /storage/
+  python cloud_services.py create-training-archive --output training_data.tar.gz
+  python cloud_services.py download-results --host paperspace.com --path /storage/results.tar.gz
+  python cloud_services.py create-results-archive --output results.tar.gz
+  python cloud_services.py list-remote-files --host paperspace.com --path /storage/
 
 Hugging Face:
-  python paperspace_utils.py hf-upload-ticks --repo-id username/dataset-name
-  python paperspace_utils.py hf-download-ticks --repo-id username/dataset-name
-  python paperspace_utils.py hf-upload-training --repo-id username/dataset-name
-  python paperspace_utils.py hf-download-training --repo-id username/dataset-name
+  python cloud_services.py hf-upload-ticks --repo-id username/dataset-name
+  python cloud_services.py hf-download-ticks --repo-id username/dataset-name
+  python cloud_services.py hf-upload-training --repo-id username/dataset-name
+  python cloud_services.py hf-download-training --repo-id username/dataset-name
+  python cloud_services.py hf-upload-features --repo-id username/dataset-name
+  python cloud_services.py hf-download-features --repo-id username/dataset-name
         """
     )
     
@@ -766,6 +954,19 @@ Hugging Face:
     hf_download_training_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
     hf_download_training_parser.add_argument('--local-dir', type=str, default='workspace', help='Локальная директория')
     
+    # Hugging Face: Upload feature analysis
+    hf_upload_features_parser = subparsers.add_parser('hf-upload-features', help='Загрузить результаты анализа фичей на Hugging Face')
+    hf_upload_features_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_upload_features_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_upload_features_parser.add_argument('--analysis-dir', type=str, default='workspace/features-analysis', help='Директория с результатами анализа')
+    hf_upload_features_parser.add_argument('--commit-message', type=str, default='Upload feature analysis results', help='Сообщение коммита')
+    
+    # Hugging Face: Download feature analysis
+    hf_download_features_parser = subparsers.add_parser('hf-download-features', help='Скачать результаты анализа фичей с Hugging Face')
+    hf_download_features_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_download_features_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_download_features_parser.add_argument('--local-dir', type=str, default='workspace/features-analysis', help='Локальная директория')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -775,15 +976,15 @@ Hugging Face:
     if args.command == 'upload-training':
         uploader = PaperspaceUploader(host=args.host, path=args.path, user=args.user)
         archive_name = f'training_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.tar.gz'
-        if uploader.create_training_archive(archive_name, 
+        if uploader.create_paperspace_training_archive(archive_name,
                                            include_ticks=args.include_ticks,
                                            include_cache=args.include_cache,
                                            ask_ticks=not args.no_ask_ticks):
-            uploader.upload_training_data(archive_name, method=args.method)
+            uploader.upload_paperspace_training_data(archive_name, method=args.method)
     
     elif args.command == 'create-training-archive':
         uploader = PaperspaceUploader()
-        uploader.create_training_archive(
+        uploader.create_paperspace_training_archive(
             output_file=args.output,
             include_ticks=args.include_ticks,
             include_cache=args.include_cache,
@@ -792,36 +993,36 @@ Hugging Face:
     
     elif args.command == 'download-results':
         downloader = PaperspaceDownloader(host=args.host, user=args.user)
-        downloader.download_results(args.path, local_path=args.local_path, method=args.method)
+        downloader.download_paperspace_results(args.path, local_path=args.local_path, method=args.method)
     
     elif args.command == 'create-results-archive':
         downloader = PaperspaceDownloader()
-        downloader.create_results_archive(args.output)
+        downloader.create_paperspace_results_archive(args.output)
     
     elif args.command == 'list-remote-files':
         downloader = PaperspaceDownloader(host=args.host, path=args.path, user=args.user)
-        downloader.list_remote_files()
+        downloader.list_paperspace_files()
     
     elif args.command == 'hf-upload-ticks':
         if not HF_AVAILABLE:
             print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
             return
         uploader = HuggingFaceUploader(repo_id=args.repo_id, token=args.token)
-        uploader.upload_ticks(ticks_dir=args.ticks_dir, commit_message=args.commit_message)
+        uploader.upload_hf_ticks(ticks_dir=args.ticks_dir, commit_message=args.commit_message)
     
     elif args.command == 'hf-download-ticks':
         if not HF_AVAILABLE:
             print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
             return
         downloader = HuggingFaceDownloader(repo_id=args.repo_id, token=args.token)
-        downloader.download_ticks(local_dir=args.local_dir)
+        downloader.download_hf_ticks(local_dir=args.local_dir)
     
     elif args.command == 'hf-upload-training':
         if not HF_AVAILABLE:
             print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
             return
         uploader = HuggingFaceUploader(repo_id=args.repo_id, token=args.token)
-        uploader.upload_training_data(
+        uploader.upload_hf_training_data(
             include_scalers=args.include_scalers,
             include_cache=args.include_cache,
             commit_message=args.commit_message
@@ -832,7 +1033,24 @@ Hugging Face:
             print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
             return
         downloader = HuggingFaceDownloader(repo_id=args.repo_id, token=args.token)
-        downloader.download_training_data(local_dir=args.local_dir)
+        downloader.download_hf_training_data(local_dir=args.local_dir)
+    
+    elif args.command == 'hf-upload-features':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        uploader = HuggingFaceUploader(repo_id=args.repo_id, token=args.token)
+        uploader.upload_hf_feature_analysis(
+            analysis_dir=args.analysis_dir,
+            commit_message=args.commit_message
+        )
+    
+    elif args.command == 'hf-download-features':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        downloader = HuggingFaceDownloader(repo_id=args.repo_id, token=args.token)
+        downloader.download_hf_feature_analysis(local_dir=args.local_dir)
     
     print("\n" + "=" * 60)
     print("Готово!")

@@ -116,16 +116,18 @@
   - Обратная совместимость: система поддерживает оба формата
   - Добавлена зависимость `pyarrow>=10.0.0` для работы с Parquet
   - Исправлена проблема несовместимости версий numpy при переносе тиков между платформами
-- **Поддержка Hugging Face Hub в `paperspace_utils.py`**
+- **Поддержка Hugging Face Hub в `cloud_services.py`** (переименован из `paperspace_utils.py`)
   - Классы `HuggingFaceUploader` и `HuggingFaceDownloader` для работы с Hugging Face
   - Команда `hf-upload-ticks` - загрузка тиковых данных на Hugging Face
   - Команда `hf-download-ticks` - скачивание тиковых данных с Hugging Face
+  - Команда `hf-upload-features` - загрузка результатов анализа фичей (--analyze-features) на Hugging Face
+  - Команда `hf-download-features` - скачивание результатов анализа фичей с Hugging Face
   - Команда `hf-upload-training` - загрузка данных для обучения (без тиков) на Hugging Face
   - Команда `hf-download-training` - скачивание данных для обучения с Hugging Face
   - Поддержка токена через `--token` или переменную окружения `HF_TOKEN`
   - Автоматическая обработка структуры директорий
   - Добавлена зависимость `huggingface_hub>=0.20.0` в requirements
-  - Примеры: `python paperspace_utils.py hf-upload-ticks --repo-id username/dataset-name`
+  - Примеры: `python cloud_services.py hf-upload-ticks --repo-id username/dataset-name`
 - **Режим offline для работы без подключения к MT5**
   - Параметр `--offline` в `prepare_gold_data.py` и `full_pipeline.py`
   - Работа только с кэшированными данными из `workspace/raw_data/ticks/`
@@ -162,7 +164,7 @@
   - Сигналы отскоков (классы 3, 4) сохраняются и ожидают подтверждения
   - Подтверждение по паттерну свечей (минимум/максимум за последние 3-5 свечей, затем разворот)
   - Настраиваемые параметры в `TradingConfig`: `bounce_confirmation_enabled`, `bounce_confirmation_periods`, `bounce_min_reversal_pips`
-- Расширенный `paperspace_utils.py` (переименован из `upload_to_paperspace.py`)
+- Расширенный `cloud_services.py` (переименован из `paperspace_utils.py`, ранее `upload_to_paperspace.py`)
   - Классы `PaperspaceUploader` и `PaperspaceDownloader`
   - Загрузка данных для обучения с опциональными тиками и кэшами
   - Скачивание результатов обучения (модели, метрики, scalers, логи)

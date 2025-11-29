@@ -1,5 +1,7 @@
 # Настройка обучения на Paperspace
 
+> 📖 **Полное руководство по облачным сервисам**: См. [15_CLOUD_SERVICES.md](15_CLOUD_SERVICES.md) для детального описания всех функций работы с Paperspace и Hugging Face.
+
 ## Обзор
 
 Это руководство поможет вам перенести подготовленные данные на Paperspace и запустить обучение модели там, где доступно больше ресурсов (30 ГБ RAM).
@@ -49,20 +51,20 @@ python full_pipeline.py --offline --days 30
 
 ### 2. Упаковка данных для отправки
 
-Используйте скрипт `paperspace_utils.py`:
+Используйте скрипт `cloud_services.py`:
 
 ```bash
 # Создать архив со всеми данными (включая тики, если нужны)
-python paperspace_utils.py create-training-archive --include-ticks
+python cloud_services.py create-training-archive --include-ticks
 
 # Или без тиков (если они слишком большие)
-python paperspace_utils.py create-training-archive
+python cloud_services.py create-training-archive
 
 # Указать имя файла
-python paperspace_utils.py create-training-archive --output my_data.tar.gz
+python cloud_services.py create-training-archive --output my_data.tar.gz
 
 # Включить кэши
-python paperspace_utils.py create-training-archive --include-cache
+python cloud_services.py create-training-archive --include-cache
 ```
 
 Скрипт автоматически:
@@ -84,7 +86,7 @@ python paperspace_utils.py create-training-archive --include-cache
 
 ```bash
 # Если настроен SSH доступ
-python paperspace_utils.py upload-training \
+python cloud_services.py upload-training \
     --host your-paperspace-host \
     --path /storage/ \
     --user paperspace \
@@ -97,10 +99,10 @@ python paperspace_utils.py upload-training \
 
 ```bash
 # Загрузить тики на Hugging Face
-python paperspace_utils.py hf-upload-ticks --repo-id username/xauusd-ticks
+python cloud_services.py hf-upload-ticks --repo-id username/xauusd-ticks
 
 # Загрузить данные для обучения (без тиков) на Hugging Face
-python paperspace_utils.py hf-upload-training --repo-id username/xauusd-training-data
+python cloud_services.py hf-upload-training --repo-id username/xauusd-training-data
 ```
 
 **Преимущества Hugging Face:**
@@ -133,7 +135,7 @@ source ~/.bashrc
 **Способ 2: Параметр командной строки**
 
 ```bash
-python paperspace_utils.py hf-upload-ticks --repo-id username/xauusd-ticks --token your_huggingface_token_here
+python cloud_services.py hf-upload-ticks --repo-id username/xauusd-ticks --token your_huggingface_token_here
 ```
 
 **Как получить токен Hugging Face:**
@@ -171,13 +173,13 @@ tar -xzf training_data_*.tar.gz
 export HF_TOKEN="your_huggingface_token_here"
 
 # Скачать тики (если нужны для offline режима)
-python paperspace_utils.py hf-download-ticks --repo-id username/xauusd-ticks
+python cloud_services.py hf-download-ticks --repo-id username/xauusd-ticks
 
 # Скачать данные для обучения
-python paperspace_utils.py hf-download-training --repo-id username/xauusd-training-data
+python cloud_services.py hf-download-training --repo-id username/xauusd-training-data
 
 # Или указать токен напрямую
-python paperspace_utils.py hf-download-ticks --repo-id username/xauusd-ticks --token your_huggingface_token_here
+python cloud_services.py hf-download-ticks --repo-id username/xauusd-ticks --token your_huggingface_token_here
 ```
 
 **4. Проверить наличие данных**
@@ -295,7 +297,7 @@ workspace/
 
 2. **Через параметр командной строки:**
    ```bash
-   python paperspace_utils.py hf-upload-ticks --repo-id username/dataset --token your_token
+   python cloud_services.py hf-upload-ticks --repo-id username/dataset --token your_token
    ```
 
 3. **Получите токен на [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)**
@@ -334,13 +336,13 @@ workspace/
 
 ```bash
 # Создать архив с результатами
-python paperspace_utils.py create-results-archive
+python cloud_services.py create-results-archive
 
 # Скачать результаты через SCP
-python paperspace_utils.py download-results --host paperspace.com --path /storage/results.tar.gz
+python cloud_services.py download-results --host paperspace.com --path /storage/results.tar.gz
 
 # Или загрузить результаты на Hugging Face
-python paperspace_utils.py hf-upload-training --repo-id username/xauusd-results \
+python cloud_services.py hf-upload-training --repo-id username/xauusd-results \
     --include-scalers
 ```
 

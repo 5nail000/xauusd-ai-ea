@@ -105,7 +105,7 @@
   - Опциональная генерация графиков распределений и по классам
   - Интеграция в `full_pipeline.py` через параметры `--analyze-features` и `--generate-feature-plots`
   - Анализ работает независимо от удаления корреляций
-  - Результаты сохраняются в `workspace/features-analysis/`
+  - Результаты сохраняются в `workspace/analysis-of-features/`
   - Детальное описание всех метрик и их интерпретации включено в `docs/11_FEATURE_OPTIMIZATION.md`
   - Примеры: `python full_pipeline.py --months 3 --analyze-features --generate-feature-plots`
 - **Переход на формат Parquet для сохранения тиков**

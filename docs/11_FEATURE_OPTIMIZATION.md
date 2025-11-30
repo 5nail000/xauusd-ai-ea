@@ -108,10 +108,10 @@ python analyze_features_comprehensive.py \
 
 ### Структура результатов
 
-Все результаты сохраняются в `workspace/features-analysis/`:
+Все результаты сохраняются в `workspace/analysis-of-features/`:
 
 ```
-workspace/features-analysis/
+workspace/analysis-of-features/
 ├── feature_statistics.csv              # Базовая статистика по фичам
 ├── feature_importance.csv              # Важность фичей (Mutual Info, F-score)
 ├── outliers_analysis.csv               # Анализ выбросов

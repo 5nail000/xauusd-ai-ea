@@ -471,13 +471,13 @@ class HuggingFaceUploader:
             return False
     
     def upload_hf_feature_analysis(self, 
-                               analysis_dir: str = 'workspace/features-analysis',
+                               analysis_dir: str = 'workspace/analysis-of-features',
                                commit_message: str = "Upload feature analysis results") -> bool:
         """
         Загружает результаты анализа фичей (--analyze-features) на Hugging Face
         
         Args:
-            analysis_dir: Директория с результатами анализа (по умолчанию: workspace/features-analysis)
+            analysis_dir: Директория с результатами анализа (по умолчанию: workspace/analysis-of-features)
             commit_message: Сообщение коммита
         """
         print("=" * 60)
@@ -520,6 +520,13 @@ class HuggingFaceUploader:
             plots_size = get_directory_size(plots_dir)
             print(f"✓ Найдена директория plots ({format_size(plots_size)})")
         
+        # Проверяем наличие excluded_features.txt в workspace
+        excluded_features_file = Path('workspace/excluded_features.txt')
+        has_excluded = excluded_features_file.exists()
+        if has_excluded:
+            size = excluded_features_file.stat().st_size
+            print(f"✓ Найден: excluded_features.txt ({format_size(size)})")
+        
         size = get_directory_size(analysis_path)
         print(f"\n📊 Общий размер результатов: {format_size(size)}")
         print(f"📁 Репозиторий: {self.repo_id}")
@@ -528,10 +535,10 @@ class HuggingFaceUploader:
         try:
             # Создаем временную директорию для загрузки
             temp_dir = Path('temp_hf_upload')
-            temp_analysis_dir = temp_dir / 'features-analysis'
+            temp_analysis_dir = temp_dir / 'analysis-of-features'
             temp_analysis_dir.mkdir(parents=True, exist_ok=True)
             
-            # Копируем все файлы и директории
+            # Копируем все файлы и директории из analysis_dir
             print(f"\nПодготовка данных...")
             for item in analysis_path.iterdir():
                 if item.is_file():
@@ -540,6 +547,13 @@ class HuggingFaceUploader:
                 elif item.is_dir():
                     shutil.copytree(item, temp_analysis_dir / item.name, dirs_exist_ok=True)
                     print(f"  Скопирована директория: {item.name}")
+            
+            # Копируем excluded_features.txt из workspace, если он существует
+            if has_excluded:
+                temp_workspace_dir = temp_dir / 'workspace'
+                temp_workspace_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(excluded_features_file, temp_workspace_dir / 'excluded_features.txt')
+                print(f"  Скопирован файл: workspace/excluded_features.txt")
             
             # Загружаем на Hugging Face
             print(f"\nЗагрузка на Hugging Face...")
@@ -615,6 +629,13 @@ class HuggingFaceUploader:
                 paths_to_include.append(str(cache_dir))
                 print(f"✓ Включена директория: {cache_dir} ({format_size(size)})")
         
+        # Проверяем наличие excluded_features.txt в workspace
+        excluded_features_file = Path('workspace/excluded_features.txt')
+        has_excluded = excluded_features_file.exists()
+        if has_excluded:
+            size = excluded_features_file.stat().st_size
+            print(f"✓ Найден: excluded_features.txt ({format_size(size)})")
+        
         if not paths_to_include:
             print("❌ Нет данных для загрузки!")
             return False
@@ -641,6 +662,13 @@ class HuggingFaceUploader:
                     else:
                         shutil.copytree(path, dest_path, dirs_exist_ok=True)
                     print(f"  Скопировано: {path_str}")
+            
+            # Копируем excluded_features.txt, если он существует
+            if has_excluded:
+                workspace_dest = temp_dir / 'workspace'
+                workspace_dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(excluded_features_file, workspace_dest / 'excluded_features.txt')
+                print(f"  Скопировано: workspace/excluded_features.txt")
             
             # Загружаем на Hugging Face
             print(f"\nЗагрузка на Hugging Face...")
@@ -773,7 +801,7 @@ class HuggingFaceDownloader:
             local_path = Path(local_dir)
             local_path.mkdir(parents=True, exist_ok=True)
             
-            # Скачиваем только данные для обучения (CSV файлы, scalers, cache)
+            # Скачиваем только данные для обучения (CSV файлы, scalers, cache, excluded_features.txt)
             print(f"\nСкачивание данных (только данные для обучения)...")
             temp_dir = Path('temp_hf_download')
             temp_dir.mkdir(exist_ok=True)
@@ -787,7 +815,8 @@ class HuggingFaceDownloader:
                     allow_patterns=[
                         "workspace/prepared/features/*.csv",
                         "workspace/prepared/scalers/**",
-                        "workspace/raw_data/cache/**"
+                        "workspace/raw_data/cache/**",
+                        "workspace/excluded_features.txt"  # Скачиваем excluded_features.txt
                     ]  # Скачиваем только нужные данные
                 )
                 
@@ -833,6 +862,16 @@ class HuggingFaceDownloader:
                         cache_dest.parent.mkdir(parents=True, exist_ok=True)
                         shutil.move(str(cache_source), str(cache_dest))
                     
+                    # Перемещаем excluded_features.txt, если он найден
+                    excluded_source = workspace_source / 'excluded_features.txt'
+                    if excluded_source.exists():
+                        excluded_dest = local_path / 'excluded_features.txt'
+                        if excluded_dest.exists():
+                            excluded_dest.unlink()
+                        excluded_dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(excluded_source), str(excluded_dest))
+                        print(f"  ✓ Перемещен excluded_features.txt в workspace/")
+                    
                     # Проверяем, что хотя бы что-то было скачано
                     if not found_any:
                         print("⚠️  Данные для обучения не найдены в репозитории")
@@ -858,12 +897,12 @@ class HuggingFaceDownloader:
             traceback.print_exc()
             return False
     
-    def download_hf_feature_analysis(self, local_dir: str = 'workspace/features-analysis') -> bool:
+    def download_hf_feature_analysis(self, local_dir: str = 'workspace/analysis-of-features') -> bool:
         """
         Скачивает результаты анализа фичей с Hugging Face
         
         Args:
-            local_dir: Локальная директория для сохранения (по умолчанию: workspace/features-analysis)
+            local_dir: Локальная директория для сохранения (по умолчанию: workspace/analysis-of-features)
         """
         print("=" * 60)
         print("Скачивание результатов анализа фичей с Hugging Face")
@@ -876,8 +915,8 @@ class HuggingFaceDownloader:
             local_path = Path(local_dir)
             local_path.mkdir(parents=True, exist_ok=True)
             
-            # Скачиваем только папку features-analysis
-            print(f"\nСкачивание данных (только папка features-analysis/)...")
+            # Скачиваем папку analysis-of-features и excluded_features.txt
+            print(f"\nСкачивание данных (папка analysis-of-features/ и excluded_features.txt)...")
             temp_dir = Path('temp_hf_download')
             temp_dir.mkdir(exist_ok=True)
             
@@ -887,14 +926,19 @@ class HuggingFaceDownloader:
                     repo_type="dataset",
                     local_dir=str(temp_dir),
                     token=self.token,
-                    allow_patterns=["features-analysis/**"]  # Скачиваем только папку features-analysis
+                    allow_patterns=[
+                        "analysis-of-features/**",  # Скачиваем папку analysis-of-features
+                        "workspace/excluded_features.txt"  # Скачиваем excluded_features.txt
+                    ]
                 )
                 
                 # Перемещаем данные из временной директории
                 downloaded_path = Path(downloaded_path)
-                analysis_source = downloaded_path / 'features-analysis'
+                analysis_source = downloaded_path / 'analysis-of-features'
                 
+                found_analysis = False
                 if analysis_source.exists() and analysis_source.is_dir():
+                    found_analysis = True
                     print(f"  Перемещение данных из временной директории...")
                     for item in analysis_source.iterdir():
                         dest = local_path / item.name
@@ -906,9 +950,38 @@ class HuggingFaceDownloader:
                             if dest.exists():
                                 shutil.rmtree(dest)
                             shutil.move(str(item), str(dest))
-                else:
-                    print("⚠️  Папка features-analysis не найдена в репозитории")
-                    print(f"   Проверьте структуру репозитория. Ожидается: features-analysis/")
+                
+                # Перемещаем excluded_features.txt в workspace, если он найден
+                excluded_source = downloaded_path / 'workspace' / 'excluded_features.txt'
+                if excluded_source.exists():
+                    workspace_path = Path('workspace')
+                    workspace_path.mkdir(parents=True, exist_ok=True)
+                    excluded_dest = workspace_path / 'excluded_features.txt'
+                    if excluded_dest.exists():
+                        excluded_dest.unlink()
+                    shutil.move(str(excluded_source), str(excluded_dest))
+                    print(f"  ✓ Перемещен excluded_features.txt в workspace/")
+                
+                if not found_analysis:
+                    # Пробуем старый путь для обратной совместимости
+                    old_analysis_source = downloaded_path / 'features-analysis'
+                    if old_analysis_source.exists() and old_analysis_source.is_dir():
+                        found_analysis = True
+                        print(f"  Найдена папка features-analysis (старое название), перемещение...")
+                        for item in old_analysis_source.iterdir():
+                            dest = local_path / item.name
+                            if item.is_file():
+                                if dest.exists():
+                                    dest.unlink()
+                                shutil.move(str(item), str(dest))
+                            else:
+                                if dest.exists():
+                                    shutil.rmtree(dest)
+                                shutil.move(str(item), str(dest))
+                
+                if not found_analysis:
+                    print("⚠️  Папка analysis-of-features не найдена в репозитории")
+                    print(f"   Проверьте структуру репозитория. Ожидается: analysis-of-features/")
                     return False
             finally:
                 # Удаляем временную директорию
@@ -1036,14 +1109,14 @@ Hugging Face:
     hf_upload_features_parser = subparsers.add_parser('hf-upload-features', help='Загрузить результаты анализа фичей на Hugging Face')
     hf_upload_features_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
     hf_upload_features_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
-    hf_upload_features_parser.add_argument('--analysis-dir', type=str, default='workspace/features-analysis', help='Директория с результатами анализа')
+    hf_upload_features_parser.add_argument('--analysis-dir', type=str, default='workspace/analysis-of-features', help='Директория с результатами анализа')
     hf_upload_features_parser.add_argument('--commit-message', type=str, default='Upload feature analysis results', help='Сообщение коммита')
     
     # Hugging Face: Download feature analysis
     hf_download_features_parser = subparsers.add_parser('hf-download-features', help='Скачать результаты анализа фичей с Hugging Face')
     hf_download_features_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
     hf_download_features_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
-    hf_download_features_parser.add_argument('--local-dir', type=str, default='workspace/features-analysis', help='Локальная директория')
+    hf_download_features_parser.add_argument('--local-dir', type=str, default='workspace/analysis-of-features', help='Локальная директория')
     
     args = parser.parse_args()
     

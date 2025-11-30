@@ -386,5 +386,5 @@ python train_all_models.py --use-wandb --wandb-project xauusd-ai-ea
 
 ---
 
-**Последнее обновление:** На основе анализа от `workspace/features-analysis/`
+**Последнее обновление:** На основе анализа от `workspace/analysis-of-features/`
 

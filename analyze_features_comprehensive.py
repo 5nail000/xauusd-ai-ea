@@ -515,8 +515,8 @@ def main():
                        help='Путь к test CSV файлу (опционально)')
     parser.add_argument('--target', type=str, default='signal_class',
                        help='Название целевой переменной (по умолчанию: signal_class)')
-    parser.add_argument('--output-dir', type=str, default='workspace/features-analysis',
-                       help='Директория для сохранения результатов (по умолчанию: workspace/features-analysis)')
+    parser.add_argument('--output-dir', type=str, default='workspace/analysis-of-features',
+                       help='Директория для сохранения результатов (по умолчанию: workspace/analysis-of-features)')
     parser.add_argument('--top-features', type=int, default=50,
                        help='Количество топ фичей для детального анализа (по умолчанию: 50)')
     parser.add_argument('--generate-plots', action='store_true',
@@ -677,9 +677,9 @@ def main():
     
     if excluded_features:
         from utils.feature_exclusions import save_excluded_features
-        exclusions_file = output_dir / 'excluded_features.txt'
-        save_excluded_features(excluded_features, exclusions_file)
-        print(f"   ✓ Сохранено {len(excluded_features)} фичей для исключения: {exclusions_file}")
+        # Сохраняем excluded_features.txt в workspace, а не в output_dir
+        save_excluded_features(excluded_features)
+        print(f"   ✓ Сохранено {len(excluded_features)} фичей для исключения в workspace/excluded_features.txt")
         print(f"   Топ-10 исключаемых фичей:")
         for i, feat in enumerate(excluded_features[:10], 1):
             print(f"     {i}. {feat}")
@@ -698,7 +698,7 @@ def main():
     print(f"  - feature_by_class_statistics.csv - статистика по классам")
     print(f"  - feature_analysis_report.html - сводный HTML отчет")
     if excluded_features:
-        print(f"  - excluded_features.txt - список фичей для исключения ({len(excluded_features)} фичей)")
+        print(f"  - workspace/excluded_features.txt - список фичей для исключения ({len(excluded_features)} фичей)")
     if args.generate_plots:
         print(f"  - plots/ - графики распределений и по классам")
 

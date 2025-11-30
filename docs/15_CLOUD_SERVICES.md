@@ -390,7 +390,7 @@ python cloud_services.py hf-upload-features \
 # С указанием директории
 python cloud_services.py hf-upload-features \
   --repo-id username/xauusd-feature-analysis \
-  --analysis-dir workspace/features-analysis
+  --analysis-dir workspace/analysis-of-features
 
 # С кастомным сообщением
 python cloud_services.py hf-upload-features \
@@ -411,7 +411,7 @@ python cloud_services.py hf-upload-features \
 **Параметры:**
 - `--repo-id` - ID репозитория (обязательно)
 - `--token` - Hugging Face токен
-- `--analysis-dir` - директория с результатами (по умолчанию: `workspace/features-analysis`)
+- `--analysis-dir` - директория с результатами (по умолчанию: `workspace/analysis-of-features`)
 - `--commit-message` - сообщение коммита (по умолчанию: "Upload feature analysis results")
 
 ### 2. Скачивание результатов анализа фичей
@@ -424,17 +424,17 @@ python cloud_services.py hf-download-features \
 # С указанием локальной директории
 python cloud_services.py hf-download-features \
   --repo-id username/xauusd-feature-analysis \
-  --local-dir workspace/features-analysis
+  --local-dir workspace/analysis-of-features
 ```
 
 **Параметры:**
 - `--repo-id` - ID репозитория (обязательно)
 - `--token` - Hugging Face токен
-- `--local-dir` - локальная директория (по умолчанию: `workspace/features-analysis`)
+- `--local-dir` - локальная директория (по умолчанию: `workspace/analysis-of-features`)
 
 **После скачивания:**
 
-Все файлы будут доступны в `workspace/features-analysis/`:
+Все файлы будут доступны в `workspace/analysis-of-features/`:
 - CSV файлы с анализом
 - HTML отчет для просмотра в браузере
 - Графики (если были загружены)
@@ -507,7 +507,7 @@ python cloud_services.py hf-download-features \
   --repo-id username/xauusd-feature-analysis
 
 # 4. Открыть HTML отчет
-# workspace/features-analysis/feature_analysis_report.html
+# workspace/analysis-of-features/feature_analysis_report.html
 ```
 
 ---
@@ -615,13 +615,13 @@ from cloud_services import HuggingFaceUploader, HuggingFaceDownloader
 uploader = HuggingFaceUploader(repo_id='username/dataset-name')
 uploader.upload_hf_ticks(ticks_dir='workspace/raw_data/ticks')
 uploader.upload_hf_training_data(include_scalers=True)
-uploader.upload_hf_feature_analysis(analysis_dir='workspace/features-analysis')
+uploader.upload_hf_feature_analysis(analysis_dir='workspace/analysis-of-features')
 
 # Скачивание данных
 downloader = HuggingFaceDownloader(repo_id='username/dataset-name')
 downloader.download_hf_ticks(local_dir='workspace/raw_data/ticks')
 downloader.download_hf_training_data(local_dir='workspace')
-downloader.download_hf_feature_analysis(local_dir='workspace/features-analysis')
+downloader.download_hf_feature_analysis(local_dir='workspace/analysis-of-features')
 ```
 
 **Примечание:** Для обратной совместимости старые названия методов (без префиксов `paperspace_` и `hf_`) также доступны как алиасы, но рекомендуется использовать новые названия для ясности.

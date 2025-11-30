@@ -5,7 +5,7 @@
 from pathlib import Path
 from typing import List, Optional
 
-DEFAULT_EXCLUSIONS_FILE = Path('workspace/features-analysis/excluded_features.txt')
+DEFAULT_EXCLUSIONS_FILE = Path('workspace/excluded_features.txt')
 
 def load_excluded_features(exclusions_file: Optional[Path] = None) -> List[str]:
     """

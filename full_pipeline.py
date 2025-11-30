@@ -639,7 +639,7 @@ def main():
                         '--val', val_path,
                         '--test', test_path,
                         '--target', 'signal_class',
-                        '--output-dir', 'workspace/features-analysis',
+                        '--output-dir', 'workspace/analysis-of-features',
                         '--top-features', '50'
                     ]
                     

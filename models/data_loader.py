@@ -323,9 +323,18 @@ def create_dataloaders(train_df: pd.DataFrame,
     # Загружаем список исключений из файла, если не указан явно
     if exclude_columns is None:
         from utils.feature_exclusions import load_excluded_features
+        from pathlib import Path
+        
+        exclusions_file = Path('workspace/excluded_features.txt')
         exclude_columns = load_excluded_features()
-        if exclude_columns:
-            print(f"  Загружено {len(exclude_columns)} фичей для исключения из excluded_features.txt")
+        
+        if exclusions_file.exists():
+            if exclude_columns:
+                print(f"  ✓ Загружено {len(exclude_columns)} фичей для исключения из excluded_features.txt")
+            else:
+                print(f"  ℹ Файл excluded_features.txt найден, но пуст - исключения не применяются")
+        else:
+            print(f"  ℹ Файл excluded_features.txt не найден - исключения не применяются")
     
     # Создаем генератор последовательностей
     seq_gen = SequenceGenerator(

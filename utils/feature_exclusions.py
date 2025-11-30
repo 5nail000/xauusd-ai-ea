@@ -1,11 +1,13 @@
 """
 Утилита для работы с исключаемыми фичами
 Читает список фичей для исключения из файла excluded_features.txt
+и белый список из included_features.txt
 """
 from pathlib import Path
 from typing import List, Optional
 
 DEFAULT_EXCLUSIONS_FILE = Path('workspace/excluded_features.txt')
+DEFAULT_INCLUSIONS_FILE = Path('workspace/included_features.txt')
 
 def load_excluded_features(exclusions_file: Optional[Path] = None) -> List[str]:
     """
@@ -40,6 +42,40 @@ def load_excluded_features(exclusions_file: Optional[Path] = None) -> List[str]:
         return []
     
     return excluded_features
+
+def load_included_features(inclusions_file: Optional[Path] = None) -> List[str]:
+    """
+    Загружает белый список фичей из файла
+    
+    Args:
+        inclusions_file: Путь к файлу с белым списком фичей.
+                        Если None, используется DEFAULT_INCLUSIONS_FILE
+    
+    Returns:
+        Список названий фичей из белого списка (пустой список, если файл не найден или пуст)
+    """
+    if inclusions_file is None:
+        inclusions_file = DEFAULT_INCLUSIONS_FILE
+    
+    included_features = []
+    
+    # Проверяем существование файла
+    if not inclusions_file.exists():
+        return included_features
+    
+    # Читаем файл
+    try:
+        with open(inclusions_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Пропускаем пустые строки и комментарии
+                if line and not line.startswith('#'):
+                    included_features.append(line)
+    except Exception as e:
+        print(f"⚠️  Предупреждение: Не удалось прочитать файл белого списка {inclusions_file}: {e}")
+        return []
+    
+    return included_features
 
 def save_excluded_features(features: List[str], 
                           exclusions_file: Optional[Path] = None,

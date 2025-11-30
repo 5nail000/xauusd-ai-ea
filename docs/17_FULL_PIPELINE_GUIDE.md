@@ -87,8 +87,14 @@ python prepare_gold_data.py --months 6 --offline
 # Автоматически загружать сохраненные данные (не спрашивать)
 python prepare_gold_data.py --months 6 --no-ask
 
-# Применять список исключений при генерации тиковых фичей
-python prepare_gold_data.py --months 6 --apply-tick-exclusions
+# Применять список исключений при генерации всех фичей
+python prepare_gold_data.py --months 6 --apply-features-exclusions
+
+# Использовать только фичи из белого списка included_features.txt
+python prepare_gold_data.py --months 6 --use-included-features
+
+# Обе опции могут работать одновременно
+python prepare_gold_data.py --months 6 --apply-features-exclusions --use-included-features
 ```
 
 #### Результаты этапа 1
@@ -148,19 +154,31 @@ python analyze_and_exclude_features.py --save-details
 - `workspace/analysis-of-features/feature_by_class_statistics.csv` - статистика по классам
 - `workspace/analysis-of-features/feature_analysis_report.html` - HTML отчет
 
-**Применение исключений при генерации тиковых фичей:**
+**Применение фильтрации фичей при генерации:**
 
-После создания списка исключений вы можете использовать опцию `--apply-tick-exclusions` при подготовке данных, чтобы тиковые фичи из списка исключений не генерировались вообще (экономит время и память):
+После создания списка исключений вы можете использовать опции фильтрации при подготовке данных:
 
 ```bash
-# Подготовка данных с применением исключений тиковых фичей
-python prepare_gold_data.py --months 6 --apply-tick-exclusions
+# Применение исключений ко всем фичам (не только тиковым)
+python prepare_gold_data.py --months 6 --apply-features-exclusions
+
+# Использование только фичей из белого списка included_features.txt
+python prepare_gold_data.py --months 6 --use-included-features
+
+# Обе опции могут работать одновременно (сначала белый список, затем исключения)
+python prepare_gold_data.py --months 6 --apply-features-exclusions --use-included-features
 
 # Или через full_pipeline
-python full_pipeline.py --apply-tick-exclusions
+python full_pipeline.py --apply-features-exclusions
+python full_pipeline.py --use-included-features
+python full_pipeline.py --apply-features-exclusions --use-included-features
 ```
 
-**Важно:** Опция отключена по умолчанию. Включите её только после создания списка исключений через `--analyze-features`.
+**Важно:** 
+- Опции отключены по умолчанию для обратной совместимости
+- `--apply-features-exclusions`: применяет исключения из `excluded_features.txt` ко всем фичам (не только тиковым)
+- `--use-included-features`: использует только фичи из `included_features.txt` (если файл существует и не пуст)
+- При одновременном использовании: сначала применяется белый список, затем из него исключаются фичи из черного списка
 
 **Что анализируется:**
 1. **Data Leakage фичи** - фичи, содержащие информацию о будущем (высший приоритет)
@@ -663,7 +681,8 @@ python cloud_services.py hf-download-training --repo-id username/dataset-name
 | `--no-higher-tf` | Не загружать старшие таймфреймы | False |
 | `--force` | Принудительно регенерировать данные | False |
 | `--no-cache` | Не использовать кэш | False |
-| `--apply-tick-exclusions` | Применять список исключений из `excluded_features.txt` при генерации тиковых фичей | False |
+| `--apply-features-exclusions` | Применять список исключений из `excluded_features.txt` при генерации всех фичей | False |
+| `--use-included-features` | Использовать только фичи из белого списка `included_features.txt` (если файл существует и не пуст) | False |
 | `--offline` | Режим offline (без MT5) | False |
 | `--no-ask` | Не спрашивать при наличии данных | False |
 
@@ -688,14 +707,15 @@ python cloud_services.py hf-download-training --repo-id username/dataset-name
 
 ### full_pipeline.py
 
-Все параметры из `prepare_gold_data.py` (включая `--apply-tick-exclusions`) и `train_all_models.py`, плюс:
+Все параметры из `prepare_gold_data.py` (включая `--apply-features-exclusions` и `--use-included-features`) и `train_all_models.py`, плюс:
 
 | Параметр | Описание | По умолчанию |
 |----------|----------|--------------|
 | `--analyze-features` | Комплексный анализ фичей и создание списка исключений | False |
 | `--correlation-threshold` | Порог корреляции | 0.95 |
 | `--save-detailed-analyze` | Сохранить детальные результаты анализа в workspace/analysis-of-features/ | False |
-| `--apply-tick-exclusions` | Применять список исключений из `excluded_features.txt` при генерации тиковых фичей | False |
+| `--apply-features-exclusions` | Применять список исключений из `excluded_features.txt` при генерации всех фичей | False |
+| `--use-included-features` | Использовать только фичи из белого списка `included_features.txt` (если файл существует и не пуст) | False |
 | `--model-type` | Тип модели для бэктестинга (encoder/timeseries) | encoder |
 | `--skip-prepare` | Пропустить подготовку данных | False |
 | `--skip-train` | Пропустить обучение | False |

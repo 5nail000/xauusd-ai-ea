@@ -112,9 +112,15 @@ def main():
     )
     
     parser.add_argument(
-        '--apply-tick-exclusions',
+        '--apply-features-exclusions',
         action='store_true',
-        help='Применять список исключений из excluded_features.txt при генерации тиковых фичей'
+        help='Применять список исключений из excluded_features.txt при генерации всех фичей'
+    )
+    
+    parser.add_argument(
+        '--use-included-features',
+        action='store_true',
+        help='Использовать только фичи из белого списка included_features.txt (если файл существует и не пуст)'
     )
     
     args = parser.parse_args()
@@ -169,7 +175,8 @@ def main():
         use_cache=not args.no_cache,
         force_regenerate=args.force,
         ask_on_existing=not args.no_ask,
-        apply_tick_exclusions=args.apply_tick_exclusions
+        apply_features_exclusions=args.apply_features_exclusions,
+        use_included_features=args.use_included_features
     )
     
     # Сохраняем подготовленные данные

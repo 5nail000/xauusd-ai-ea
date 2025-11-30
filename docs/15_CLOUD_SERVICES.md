@@ -15,6 +15,9 @@
 # Для работы с Hugging Face
 pip install huggingface_hub>=0.20.0
 
+# Для работы с Paperspace API (обязательно для API команд)
+pip install paperspace>=0.2.0
+
 # Для работы с Paperspace (SCP/RSYNC)
 # Windows: установите OpenSSH или Git Bash
 # Linux/Mac: уже включены в систему
@@ -40,8 +43,41 @@ python cloud_services.py hf-upload-ticks --repo-id username/dataset --token your
 
 ### Paperspace
 
+**Для работы через SSH (SCP/RSYNC):**
 1. Настройте SSH доступ к вашему Paperspace серверу
 2. Убедитесь, что у вас есть доступ к `/storage/` или другой директории
+
+**Для работы через Paperspace API (автоматизация):**
+1. **Установите paperspace CLI:**
+   ```bash
+   pip install paperspace
+   ```
+
+2. **Проверьте установку:**
+   ```bash
+   python -m paperspace version
+   ```
+
+3. **Получите API ключ:**
+   - Зайдите в [Paperspace Console](https://console.paperspace.com/)
+   - Перейдите в Settings → API Keys
+   - Создайте новый API ключ (не Core API - он устарел с 15 июля 2024)
+
+4. **Установите переменную окружения:**
+   ```bash
+   # Linux/Mac
+   export PAPERSPACE_API_KEY=your_api_key_here
+
+   # Windows PowerShell
+   $env:PAPERSPACE_API_KEY="your_api_key_here"
+
+   # Windows CMD
+   set PAPERSPACE_API_KEY=your_api_key_here
+   ```
+
+5. Или передавайте ключ через параметр `--api-key` в командах
+
+**⚠️ Важно:** Core API устарел с 15 июля 2024. Используйте paperspace CLI.
 
 ---
 
@@ -205,6 +241,213 @@ tar -xzf results_20240101.tar.gz
 # workspace/models/metrics/
 # workspace/prepared/scalers/
 ```
+
+---
+
+## Paperspace: Автоматизация через API
+
+Paperspace CLI позволяет полностью автоматизировать процесс обучения: создание машин, клонирование репозитория, установку зависимостей, запуск обучения и загрузку результатов на Hugging Face.
+
+### Преимущества API подхода
+
+- ✅ **Полная автоматизация** - весь процесс от создания машины до загрузки модели
+- ✅ **Не требует SSH** - все через API запросы
+- ✅ **Управление жизненным циклом** - автоматическое создание и остановка машин
+- ✅ **Интеграция с Hugging Face** - автоматическая загрузка моделей
+
+### 1. Создание машины через API
+
+**⚠️ Важно:** 
+- Core API устарел с 15 июля 2024 и больше не доступен
+- Используется paperspace CLI через subprocess
+- Убедитесь, что paperspace установлен: `pip install paperspace`
+- Проверьте доступность: `python -m paperspace version`
+
+```bash
+# Базовый вариант
+python cloud_services.py ps-create-machine
+
+# С указанием типа машины
+python cloud_services.py ps-create-machine \
+  --machine-type P5000 \
+  --template PyTorch \
+  --region NYC1 \
+  --size 100 \
+  --billing-type hourly
+
+# С кастомным именем и месячной оплатой
+python cloud_services.py ps-create-machine \
+  --machine-type GPU+ \
+  --name my-training-machine \
+  --size 50 \
+  --billing-type monthly \
+  --api-key your_paperspace_api_key
+```
+
+**Если возникает ошибка:**
+- Проверьте, что paperspace CLI установлен: `pip install paperspace`
+- Проверьте доступность: `python -m paperspace version`
+- Убедитесь, что используете правильный API ключ
+- Проверьте параметры команды: `python -m paperspace machines create --help`
+
+**Параметры:**
+- `--machine-type` - тип машины: `GPU+`, `P4000`, `P5000`, etc. (по умолчанию: `GPU+`)
+- `--template` - ID шаблона образа (по умолчанию: `PyTorch`)
+- `--region` - регион: `NYC1` → `ny2`, `AMS1` → `ams1`, `CA1` → `ca1` (по умолчанию: `NYC1`)
+- `--name` - имя машины (опционально, генерируется автоматически)
+- `--size` - размер хранилища в GB (обязательно, по умолчанию: `50`)
+- `--billing-type` - тип оплаты: `hourly` или `monthly` (по умолчанию: `hourly`)
+- `--api-key` - Paperspace API ключ (или используйте `PAPERSPACE_API_KEY` env var)
+
+**Результат:**
+Команда выведет ID созданной машины, которую можно использовать для дальнейших операций.
+
+### 2. Полный цикл обучения через API
+
+**Самая мощная функция** - автоматизирует весь процесс:
+
+1. Создает машину на Paperspace
+2. Клонирует репозиторий
+3. Устанавливает зависимости из `requirements_linux.txt`
+4. Скачивает датасет с Hugging Face
+5. Запускает обучение
+6. Загружает модель на Hugging Face
+7. Останавливает машину
+
+```bash
+# Полный цикл обучения
+python cloud_services.py ps-run-training \
+  --repo-url https://github.com/username/xauusd-ai-ea.git \
+  --hf-dataset-repo username/xauusd-training-data \
+  --hf-model-repo username/xauusd-models \
+  --months 12
+
+# С указанием типа машины и токенов
+python cloud_services.py ps-run-training \
+  --repo-url https://github.com/username/xauusd-ai-ea.git \
+  --hf-dataset-repo username/xauusd-training-data \
+  --hf-model-repo username/xauusd-models \
+  --machine-type P5000 \
+  --months 12 \
+  --hf-token your_hf_token \
+  --api-key your_paperspace_api_key
+```
+
+**Параметры:**
+- `--repo-url` - URL репозитория для клонирования (обязательно)
+- `--hf-dataset-repo` - ID репозитория датасета на Hugging Face (обязательно)
+- `--hf-model-repo` - ID репозитория модели на Hugging Face (обязательно)
+- `--machine-type` - тип машины (по умолчанию: `GPU+`)
+- `--months` - количество месяцев данных (по умолчанию: `12`)
+- `--hf-token` - Hugging Face токен (или используйте `HF_TOKEN` env var)
+- `--api-key` - Paperspace API ключ (или используйте `PAPERSPACE_API_KEY` env var)
+
+**Что происходит внутри:**
+
+1. **Создание машины** - создается машина указанного типа
+2. **Ожидание готовности** - система ждет, пока машина станет готовой
+3. **Настройка окружения** - выполняется скрипт:
+   ```bash
+   cd /storage
+   git clone <repo-url> xauusd-ai-ea
+   cd xauusd-ai-ea
+   pip install -r requirements_linux.txt
+   ```
+4. **Скачивание датасета** - автоматически скачиваются данные с Hugging Face
+5. **Запуск обучения** - выполняется `full_pipeline.py --skip-prepare --months <N> --skip-backtest`
+6. **Загрузка модели** - обученная модель загружается на Hugging Face
+7. **Остановка машины** - машина автоматически останавливается
+
+**Пример использования на Windows Server:**
+
+```powershell
+# Установить переменные окружения
+$env:PAPERSPACE_API_KEY="your_paperspace_api_key"
+$env:HF_TOKEN="your_huggingface_token"
+
+# Запустить полный цикл обучения
+python cloud_services.py ps-run-training `
+  --repo-url https://github.com/username/xauusd-ai-ea.git `
+  --hf-dataset-repo username/xauusd-training-data `
+  --hf-model-repo username/xauusd-models `
+  --months 12
+```
+
+### 3. Управление машинами
+
+```bash
+# Остановить машину
+python cloud_services.py ps-stop-machine \
+  --machine-id ps123abc
+
+# Удалить машину
+python cloud_services.py ps-delete-machine \
+  --machine-id ps123abc
+```
+
+**Параметры:**
+- `--machine-id` - ID машины (обязательно)
+- `--api-key` - Paperspace API ключ (опционально)
+
+### Программируемый API
+
+Вы также можете использовать API программно:
+
+```python
+from cloud_services import PaperspaceAPIClient
+
+# Создать клиент
+client = PaperspaceAPIClient(api_key="your_api_key")
+
+# Создать машину
+machine = client.create_machine(
+    machine_type="GPU+",
+    template="PyTorch",
+    region="NYC1",
+    name="my-training-machine"
+)
+
+# Ожидать готовности
+client.wait_for_machine_ready(machine['id'])
+
+# Запустить полный цикл обучения
+success = client.run_full_training_pipeline(
+    repo_url="https://github.com/username/xauusd-ai-ea.git",
+    hf_dataset_repo="username/xauusd-training-data",
+    hf_model_repo="username/xauusd-models",
+    hf_token="your_hf_token",
+    machine_type="GPU+",
+    months=12
+)
+
+# Остановить машину
+client.stop_machine(machine['id'])
+```
+
+### Типичный сценарий: Автоматическое обучение
+
+```bash
+# На Windows Server или любой машине с Python
+
+# 1. Установить переменные окружения
+export PAPERSPACE_API_KEY="your_paperspace_api_key"
+export HF_TOKEN="your_huggingface_token"
+
+# 2. Запустить полный цикл
+python cloud_services.py ps-run-training \
+  --repo-url https://github.com/username/xauusd-ai-ea.git \
+  --hf-dataset-repo username/xauusd-training-data \
+  --hf-model-repo username/xauusd-models \
+  --months 12
+
+# 3. Готово! Модель загружена на Hugging Face
+```
+
+**Преимущества:**
+- Не нужно вручную подключаться к Paperspace
+- Не нужно настраивать SSH
+- Весь процесс автоматизирован
+- Машина автоматически останавливается после завершения
 
 ---
 
@@ -870,6 +1113,50 @@ deleter.delete_all_data()  # Удалить все данные (требует 
 | `--host` | str | Нет | `paperspace.com` | Хост Paperspace |
 | `--path` | str | Нет | `/storage/` | Путь на Paperspace |
 | `--user` | str | Нет | `None` | Пользователь для SSH |
+
+### Paperspace: Автоматизация через API
+
+#### `ps-create-machine`
+Создает машину на Paperspace через API.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--machine-type` | str | Нет | `GPU+` | Тип машины (GPU+, P4000, P5000, etc.) |
+| `--template` | str | Нет | `PyTorch` | ID шаблона образа |
+| `--region` | str | Нет | `NYC1` | Регион (NYC1 → ny2, AMS1 → ams1, CA1 → ca1) |
+| `--name` | str | Нет | Авто | Имя машины |
+| `--size` | int | Нет | `50` | Размер хранилища в GB |
+| `--billing-type` | str | Нет | `hourly` | Тип оплаты: `hourly` или `monthly` |
+| `--api-key` | str | Нет | `PAPERSPACE_API_KEY` | Paperspace API ключ |
+
+#### `ps-run-training`
+Запускает полный цикл обучения на Paperspace через API (создание машины, клонирование репозитория, установка зависимостей, скачивание датасета, обучение, загрузка модели, остановка машины).
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-url` | str | **Да** | - | URL репозитория для клонирования |
+| `--hf-dataset-repo` | str | **Да** | - | ID репозитория датасета на Hugging Face |
+| `--hf-model-repo` | str | **Да** | - | ID репозитория модели на Hugging Face |
+| `--machine-type` | str | Нет | `GPU+` | Тип машины |
+| `--months` | int | Нет | `12` | Количество месяцев данных |
+| `--hf-token` | str | Нет | `HF_TOKEN` | Hugging Face токен |
+| `--api-key` | str | Нет | `PAPERSPACE_API_KEY` | Paperspace API ключ |
+
+#### `ps-stop-machine`
+Останавливает машину на Paperspace.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--machine-id` | str | **Да** | - | ID машины |
+| `--api-key` | str | Нет | `PAPERSPACE_API_KEY` | Paperspace API ключ |
+
+#### `ps-delete-machine`
+Удаляет машину на Paperspace.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--machine-id` | str | **Да** | - | ID машины |
+| `--api-key` | str | Нет | `PAPERSPACE_API_KEY` | Paperspace API ключ |
 
 ---
 

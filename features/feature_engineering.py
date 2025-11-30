@@ -24,6 +24,7 @@ from features.statistical_features import add_statistical_features, add_momentum
 from features.volume_features import add_volume_features
 from features.tick_features import add_tick_features_to_minute_data
 from features.level_features import add_support_resistance_features, add_fibonacci_features, add_pivot_points
+from utils.feature_exclusions import load_excluded_features, load_included_features
 
 class FeatureEngineer:
     """
@@ -71,7 +72,8 @@ class FeatureEngineer:
                        symbol: str = 'XAUUSD',
                        save_intermediate: bool = True,
                        resume: bool = True,
-                       apply_tick_exclusions: bool = False) -> pd.DataFrame:
+                       apply_features_exclusions: bool = False,
+                       use_included_features: bool = False) -> pd.DataFrame:
         """
         Создает все фичи из сырых данных
         
@@ -83,7 +85,8 @@ class FeatureEngineer:
             symbol: Символ для кэширования (по умолчанию 'XAUUSD')
             save_intermediate: Сохранять ли промежуточные результаты
             resume: Продолжить с сохраненного прогресса, если он есть
-            apply_tick_exclusions: Применять ли список исключений при генерации тиковых фичей (по умолчанию: False)
+            apply_features_exclusions: Применять список исключений из excluded_features.txt ко всем фичам (по умолчанию: False)
+            use_included_features: Использовать только фичи из белого списка included_features.txt (если файл существует и не пуст) (по умолчанию: False)
         
         Returns:
             DataFrame со всеми фичами
@@ -275,7 +278,7 @@ class FeatureEngineer:
                     df,
                     ticks_data,
                     intervals=self.config.tick_candle_intervals,
-                    apply_exclusions=apply_tick_exclusions
+                    apply_exclusions=apply_features_exclusions
                 )
                 if save_intermediate:
                     self._save_intermediate_result(symbol, 'after_tick_features', df)
@@ -285,7 +288,11 @@ class FeatureEngineer:
             print(f"[{_get_timestamp()}]   - Целевые переменные...")
             df = self._add_target_variables(df)
         
-        # 14. Удаление высококоррелированных фичей (опционально)
+        # 14. Применение фильтрации фичей (белый список и/или черный список)
+        if use_included_features or apply_features_exclusions:
+            df = self._apply_feature_filters(df, use_included_features, apply_features_exclusions)
+        
+        # 15. Удаление высококоррелированных фичей (опционально)
         if hasattr(self.config, 'remove_correlated_features') and self.config.remove_correlated_features:
             print(f"[{_get_timestamp()}]   - Удаление высококоррелированных фичей...")
             df = self._remove_correlated_features(df, threshold=getattr(self.config, 'correlation_threshold', 0.95))
@@ -337,6 +344,70 @@ class FeatureEngineer:
         
         if cleared > 0:
             print(f"[{_get_timestamp()}] ✓ Очищено {cleared} промежуточных файлов кэша")
+    
+    def _apply_feature_filters(self, df: pd.DataFrame, 
+                               use_included_features: bool = False,
+                               apply_features_exclusions: bool = False) -> pd.DataFrame:
+        """
+        Применяет фильтрацию фичей: белый список и/или черный список
+        
+        Args:
+            df: DataFrame с фичами
+            use_included_features: Использовать только фичи из белого списка included_features.txt
+            apply_features_exclusions: Применять список исключений из excluded_features.txt
+        
+        Returns:
+            DataFrame с отфильтрованными фичами
+        """
+        from pathlib import Path
+        
+        # Определяем, какие колонки являются фичами (исключаем целевые переменные и служебные)
+        exclude_patterns = ['future_return', 'signal_class', 'signal_class_name', 'max_future_return']
+        all_feature_columns = [
+            col for col in df.columns 
+            if not any(pattern in col for pattern in exclude_patterns)
+        ]
+        
+        # Начинаем с полного списка фичей
+        allowed_features = set(all_feature_columns)
+        
+        # 1. Применяем белый список (если включен и файл существует)
+        if use_included_features:
+            included_features = load_included_features()
+            if included_features:
+                included_set = set(included_features)
+                # Оставляем только фичи из белого списка
+                allowed_features = allowed_features & included_set
+                print(f"[{_get_timestamp()}]   ✓ Применен белый список: {len(included_features)} фичей в списке, {len(allowed_features)} осталось после фильтрации")
+            else:
+                print(f"[{_get_timestamp()}]   ⚠️  Белый список включен, но файл included_features.txt не найден или пуст - игнорируем")
+        
+        # 2. Применяем черный список (исключаем фичи)
+        if apply_features_exclusions:
+            excluded_features = load_excluded_features()
+            if excluded_features:
+                excluded_set = set(excluded_features)
+                # Удаляем исключенные фичи из разрешенного списка
+                allowed_features = allowed_features - excluded_set
+                print(f"[{_get_timestamp()}]   ✓ Применен черный список: исключено {len(excluded_features)} фичей, осталось {len(allowed_features)}")
+            else:
+                print(f"[{_get_timestamp()}]   ⚠️  Черный список включен, но файл excluded_features.txt не найден или пуст - игнорируем")
+        
+        # 3. Определяем, какие колонки нужно удалить
+        columns_to_remove = set(all_feature_columns) - allowed_features
+        
+        # Всегда сохраняем целевые переменные и служебные колонки
+        target_columns = [col for col in df.columns if any(pattern in col for pattern in exclude_patterns)]
+        columns_to_keep = list(allowed_features) + target_columns
+        
+        if columns_to_remove:
+            print(f"[{_get_timestamp()}]   - Удаление {len(columns_to_remove)} фичей из DataFrame...")
+            df = df[columns_to_keep]
+            print(f"[{_get_timestamp()}]   ✓ Осталось {len(allowed_features)} фичей в DataFrame")
+        else:
+            print(f"[{_get_timestamp()}]   ✓ Все фичи прошли фильтрацию, удалений не требуется")
+        
+        return df
     
     def _remove_correlated_features(self, df: pd.DataFrame, threshold: float = 0.95) -> pd.DataFrame:
         """

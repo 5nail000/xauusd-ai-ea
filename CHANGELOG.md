@@ -7,6 +7,18 @@
 
 ## [2025-11-30]
 
+### Изменено
+- **Расширение фильтрации фичей: переименование и расширение функциональности**
+  - Переименован параметр `--apply-tick-exclusions` → `--apply-features-exclusions` в `prepare_gold_data.py` и `full_pipeline.py`
+  - Переименованы параметры `apply_tick_exclusions` → `apply_features_exclusions` в `FeatureEngineer.create_features()` и `GoldDataPreparator.prepare_full_dataset()`
+  - Фильтрация теперь применяется ко всем фичам (не только тиковым) через метод `_apply_feature_filters()` в `FeatureEngineer`
+  - Добавлена поддержка белого списка фичей через опцию `--use-included-features`
+  - Добавлена функция `load_included_features()` в `utils/feature_exclusions.py` для загрузки белого списка из `included_features.txt`
+  - Обе опции (`--apply-features-exclusions` и `--use-included-features`) могут работать одновременно:
+    - Сначала применяется белый список (если включен и файл существует)
+    - Затем из него исключаются фичи из черного списка `excluded_features.txt`
+  - Опции отключены по умолчанию для обратной совместимости
+
 ### Добавлено
 - **Улучшения алгоритма поиска уровней поддержки/сопротивления**
   - Добавлен forward fill для уровней с ограничениями по времени (максимум 50 свечей) и расстоянию (максимум 3.0 * ATR)
@@ -14,14 +26,6 @@
   - Исправлены бинарные фичи `in_support_zone` и `in_resistance_zone`: теперь используют NaN вместо 0, когда уровень не найден
   - Уменьшено количество пропусков в фичах уровней поддержки/сопротивления
   - Сохранена обратная совместимость: основные параметры алгоритма не изменены
-- **Опциональное исключение тиковых фичей при генерации**
-  - Добавлен параметр `apply_exclusions` в `add_tick_features_to_minute_data()` (по умолчанию: `False`)
-  - Добавлен параметр `apply_tick_exclusions` в `FeatureEngineer.create_features()` (по умолчанию: `False`)
-  - Добавлен параметр `apply_tick_exclusions` в `GoldDataPreparator.prepare_full_dataset()` (по умолчанию: `False`)
-  - Добавлен аргумент `--apply-tick-exclusions` в `prepare_gold_data.py`
-  - Добавлен аргумент `--apply-tick-exclusions` в `full_pipeline.py`
-  - При включении опции тиковые фичи из `workspace/excluded_features.txt` не генерируются, что экономит время и память
-  - Опция отключена по умолчанию для обратной совместимости
 - **Опциональное сохранение детальных результатов анализа фичей**
   - Добавлен параметр `--save-details` в `analyze_and_exclude_features.py`
   - Добавлен параметр `--save-detailed-analyze` в `full_pipeline.py` (передает `--save-details` в скрипт анализа)

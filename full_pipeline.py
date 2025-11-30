@@ -266,9 +266,15 @@ def main():
     )
     
     parser.add_argument(
-        '--apply-tick-exclusions',
+        '--apply-features-exclusions',
         action='store_true',
-        help='Применять список исключений из excluded_features.txt при генерации тиковых фичей'
+        help='Применять список исключений из excluded_features.txt при генерации всех фичей'
+    )
+    
+    parser.add_argument(
+        '--use-included-features',
+        action='store_true',
+        help='Использовать только фичи из белого списка included_features.txt (если файл существует и не пуст)'
     )
     
     # Параметры обучения
@@ -474,8 +480,10 @@ def main():
                 prepare_cmd.append('--no-cache')
             if args.offline:
                 prepare_cmd.append('--offline')
-            if args.apply_tick_exclusions:
-                prepare_cmd.append('--apply-tick-exclusions')
+            if args.apply_features_exclusions:
+                prepare_cmd.append('--apply-features-exclusions')
+            if args.use_included_features:
+                prepare_cmd.append('--use-included-features')
             prepare_cmd.append('--no-ask')  # Не спрашивать при наличии данных
             
             if not run_command(prepare_cmd, "ЭТАП 1: Подготовка данных"):

@@ -423,7 +423,8 @@ class GoldDataPreparator:
                             use_cache: bool = True,
                             force_regenerate: bool = False,
                             ask_on_existing: bool = True,
-                            apply_tick_exclusions: bool = False) -> pd.DataFrame:
+                            apply_features_exclusions: bool = False,
+                            use_included_features: bool = False) -> pd.DataFrame:
         """
         Подготавливает полный датасет для обучения
         
@@ -437,6 +438,8 @@ class GoldDataPreparator:
             use_cache: Использовать сохраненный кэш, если он есть
             force_regenerate: Принудительно регенерировать данные (игнорировать кэш)
             ask_on_existing: Спрашивать пользователя, если файл существует
+            apply_features_exclusions: Применять список исключений из excluded_features.txt ко всем фичам
+            use_included_features: Использовать только фичи из белого списка included_features.txt (если файл существует и не пуст)
         
         Returns:
             DataFrame со всеми фичами и целевыми переменными
@@ -528,7 +531,8 @@ class GoldDataPreparator:
             symbol=symbol,
             save_intermediate=True,  # Сохранять промежуточные результаты
             resume=True,  # Продолжить с сохраненного прогресса
-            apply_tick_exclusions=apply_tick_exclusions
+            apply_features_exclusions=apply_features_exclusions,
+            use_included_features=use_included_features
         )
         
         # 5. Генерация целевых переменных

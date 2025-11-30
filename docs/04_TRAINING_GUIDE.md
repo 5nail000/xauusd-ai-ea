@@ -87,6 +87,10 @@ python train_all_models.py --months 12 --epochs 50 --batch-size 16
 - `--batch-size` - размер батча (по умолчанию: 32)
 - `--epochs` - количество эпох (по умолчанию: 100)
 - `--patience` - терпение для early stopping (по умолчанию: 10)
+- `--dropout` - Dropout rate (по умолчанию: 0.1)
+- `--learning-rate` - Learning rate (по умолчанию: 1e-4)
+- `--weight-decay` - Weight decay для регуляризации (по умолчанию: 1e-5)
+- `--no-temporal-encoding` - Отключить временное кодирование в Time Series Transformer (рекомендуется, если временные фичи уже в данных)
 
 ### 3. Настройка параметров
 

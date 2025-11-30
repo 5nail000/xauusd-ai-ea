@@ -56,7 +56,7 @@ Patch Embedding (опционально)
   ↓
 Input Embedding [batch, seq_len, d_model]
   ↓
-Temporal Encoding (временное кодирование)
+Temporal Encoding (временное кодирование) [ОПЦИОНАЛЬНО]
   ↓
 Encoder Layers (6 слоев)
   ├─ Multi-Head Attention
@@ -71,7 +71,11 @@ Classifier [batch, num_classes]
 ```
 
 ### Особенности:
-- **Temporal Encoding**: Учет временных меток (час, день недели)
+- **Temporal Encoding**: Позиционное кодирование для временных последовательностей (опционально)
+  - ⚠️ **Важно**: Временные фичи (hour, day_of_week, торговые сессии) уже включены в данные как обычные фичи
+  - Temporal Encoding добавляет только позиционное кодирование (sinusoidal), а не реальные временные метки
+  - Может быть избыточным, если временные фичи уже в данных
+  - Рекомендуется отключить (`--no-temporal-encoding`), если модель переобучается
 - **Patch Embedding**: Группировка временных шагов (опционально)
 - **Multi-Scale Attention**: Анализ на разных временных масштабах
 - **Combined Pooling**: Mean + Max pooling для лучшего представления
@@ -82,8 +86,48 @@ Classifier [batch, num_classes]
 - `n_heads`: 8
 - `d_ff`: 1024
 - `dropout`: 0.1
-- `use_temporal_encoding`: True
+- `use_temporal_encoding`: True (можно отключить через `--no-temporal-encoding`)
 - `use_patch_embedding`: False
+
+### Когда отключать Temporal Encoding?
+
+**Рекомендуется отключить (`--no-temporal-encoding`), если:**
+
+1. ✅ **Временные фичи уже есть в данных** (hour, day_of_week, торговые сессии)
+   - В вашем проекте временные фичи добавляются через `add_time_features()`
+   - Temporal Encoding может быть избыточным
+
+2. ✅ **Модель переобучается на временные паттерны**
+   - Если валидационная точность падает, а train растет
+   - Temporal Encoding может усугублять переобучение
+
+3. ✅ **Хотите упростить модель**
+   - Меньше параметров = быстрее обучение
+   - Меньше риск переобучения
+
+**Оставить включенным, если:**
+
+1. ✅ Временных фичей нет в данных
+2. ✅ Нужно максимальное качество и есть достаточно данных
+3. ✅ Модель не переобучается
+
+### Примеры использования:
+
+```bash
+# С временным кодированием (по умолчанию)
+python train_all_models.py --timeseries-only --months 6
+
+# Без временного кодирования (рекомендуется, если временные фичи уже в данных)
+python train_all_models.py --timeseries-only --months 6 --no-temporal-encoding
+
+# С параметрами регуляризации и без temporal encoding
+python train_all_models.py \
+  --timeseries-only \
+  --months 6 \
+  --dropout 0.2 \
+  --weight-decay 1e-4 \
+  --no-temporal-encoding
+```
 
 ## Использование
 

@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--patience', type=int, default=10, help='Терпение для early stopping (по умолчанию: 10)')
     parser.add_argument('--sequence-length', type=int, default=60, help='Длина последовательности (по умолчанию: 60)')
     parser.add_argument('--training-months', type=int, default=6, help='Количество месяцев данных для метаданных (по умолчанию: 6)')
+    parser.add_argument('--no-temporal-encoding', action='store_true', help='Отключить временное кодирование в Time Series Transformer (по умолчанию: включено). Полезно, если временные фичи уже есть в данных')
     args = parser.parse_args()
     
     print("=" * 60)
@@ -43,6 +44,8 @@ def main():
     print(f"  Эпох: {args.epochs}")
     print(f"  Patience: {args.patience}")
     print(f"  Sequence Length: {args.sequence_length}")
+    if args.model_type == 'timeseries':
+        print(f"  Temporal Encoding: {'Выключено' if args.no_temporal_encoding else 'Включено'}")
     print("=" * 60)
     
     # 1. Загрузка данных
@@ -96,7 +99,8 @@ def main():
         batch_size=args.batch_size,
         num_epochs=args.epochs,
         early_stopping_patience=args.patience,
-        training_data_months=args.training_months
+        training_data_months=args.training_months,
+        use_temporal_encoding=(not args.no_temporal_encoding) if model_type == 'timeseries' else None
     )
     
     model = create_model(config)

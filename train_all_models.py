@@ -14,7 +14,8 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
                      num_epochs: int = 100, early_stopping_patience: int = 10,
                      use_wandb: bool = False, wandb_project: str = 'xauusd-ai-ea',
                      use_class_weights: bool = True, class_weight_method: str = 'balanced',
-                     dropout: float = 0.1, learning_rate: float = 1e-4, weight_decay: float = 1e-5):
+                     dropout: float = 0.1, learning_rate: float = 1e-4, weight_decay: float = 1e-5,
+                     use_temporal_encoding: bool = True):
     """Обучает модель указанного типа"""
     print("=" * 80)
     print(f"ОБУЧЕНИЕ {model_type.upper()} МОДЕЛИ НА {training_months} МЕСЯЦАХ")
@@ -104,7 +105,7 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
             n_layers=6,
             n_heads=8,
             dropout=dropout,
-            use_temporal_encoding=True,
+            use_temporal_encoding=use_temporal_encoding,
             use_patch_embedding=False
         )
     else:
@@ -302,6 +303,12 @@ def main():
         help='Weight decay для регуляризации (по умолчанию: 1e-5)'
     )
     
+    parser.add_argument(
+        '--no-temporal-encoding',
+        action='store_true',
+        help='Отключить временное кодирование в Time Series Transformer (по умолчанию: включено). Полезно, если временные фичи уже есть в данных'
+    )
+    
     args = parser.parse_args()
     
     print("\n" + "=" * 80)
@@ -315,6 +322,8 @@ def main():
     print(f"  Dropout: {args.dropout}")
     print(f"  Learning Rate: {args.learning_rate}")
     print(f"  Weight Decay: {args.weight_decay}")
+    if args.timeseries_only or (not args.encoder_only and not args.timeseries_only):
+        print(f"  Temporal Encoding: {'Выключено' if args.no_temporal_encoding else 'Включено'}")
     print(f"  Weights & Biases: {'Включено' if args.use_wandb else 'Выключено'}")
     if args.use_wandb:
         print(f"  W&B проект: {args.wandb_project}")
@@ -353,7 +362,8 @@ def main():
                 class_weight_method=args.class_weight_method,
                 dropout=args.dropout,
                 learning_rate=args.learning_rate,
-                weight_decay=args.weight_decay
+                weight_decay=args.weight_decay,
+                use_temporal_encoding=not args.no_temporal_encoding
             )
             all_results[model_type] = results
         except Exception as e:

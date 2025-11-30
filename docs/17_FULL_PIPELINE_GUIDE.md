@@ -183,7 +183,11 @@ python train_all_models.py --months 6 --encoder-only --batch-size 32 --epochs 10
 ##### Только timeseries модель
 
 ```bash
+# С временным кодированием (по умолчанию)
 python train_all_models.py --months 6 --timeseries-only
+
+# Без временного кодирования (рекомендуется, если временные фичи уже в данных)
+python train_all_models.py --months 6 --timeseries-only --no-temporal-encoding
 ```
 
 ##### С дополнительными параметрами
@@ -664,6 +668,7 @@ python cloud_services.py hf-download-training --repo-id username/dataset-name
 | `--dropout` | Dropout rate для регуляризации | 0.1 |
 | `--learning-rate` | Learning rate | 1e-4 |
 | `--weight-decay` | Weight decay для регуляризации | 1e-5 |
+| `--no-temporal-encoding` | Отключить временное кодирование в Time Series Transformer | False |
 | `--no-class-weights` | Не использовать веса классов | False |
 | `--class-weight-method` | Метод весов (balanced/inverse/sqrt) | balanced |
 | `--use-wandb` | Использовать Weights & Biases | False |

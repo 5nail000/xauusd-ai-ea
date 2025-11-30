@@ -288,134 +288,221 @@ class ModelTrainer:
             checkpoint_path: Путь для сохранения лучшей модели
             save_history: Сохранять ли историю обучения
         """
+        # Создаем директорию для анализа обучения
+        analysis_dir = 'workspace/analysis-of-train'
+        os.makedirs(analysis_dir, exist_ok=True)
+        
+        # Определяем базовое имя модели из checkpoint_path
+        model_name = os.path.basename(checkpoint_path).replace('.pth', '')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        analysis_subdir = os.path.join(analysis_dir, f"{model_name}_{timestamp}")
+        os.makedirs(analysis_subdir, exist_ok=True)
+        
+        # Пути для сохранения
+        history_csv_path = os.path.join(analysis_subdir, f'{model_name}_history.csv')
+        history_pkl_path = os.path.join(analysis_subdir, f'{model_name}_history.pkl')
+        plot_path = os.path.join(analysis_subdir, f'{model_name}_training_curves.png')
+        text_log_path = os.path.join(analysis_subdir, f'{model_name}_training_log.txt')
+        
+        # Открываем файл для текстового лога
+        log_file = open(text_log_path, 'w', encoding='utf-8')
+        
+        def log_print(*args, **kwargs):
+            """Выводит в консоль и в файл"""
+            print(*args, **kwargs)
+            print(*args, file=log_file, **kwargs)
+            log_file.flush()  # Гарантируем запись в файл
+        
         # Callbacks
         early_stopping = EarlyStopping(patience=early_stopping_patience, mode='max')
         checkpoint = ModelCheckpoint(checkpoint_path, mode='max', save_best_only=True, model_config=self.model_config)
         
-        print(f"\nНачало обучения на {num_epochs} эпох")
-        print("=" * 60)
+        log_print(f"\nНачало обучения на {num_epochs} эпох")
+        log_print(f"Анализ обучения сохраняется в: {analysis_subdir}")
+        log_print("=" * 60)
         
         best_val_acc = 0.0
+        interrupted = False
         
-        for epoch in range(num_epochs):
-            print(f"\nЭпоха {epoch + 1}/{num_epochs}")
-            print("-" * 60)
-            
-            # Обучение
-            train_metrics = self.train_epoch(train_loader)
-            
-            # Валидация
-            val_metrics = self.validate(val_loader)
-            
-            # Learning rate scheduler
-            self.lr_scheduler.step(val_metrics['loss'])
-            current_lr = self.lr_scheduler.get_lr()
-            
-            # Обновляем историю
-            self.history.update(
-                train_metrics['loss'],
-                train_metrics['accuracy'],
-                val_metrics['loss'],
-                val_metrics['accuracy'],
-                current_lr
-            )
-            
-            # Логируем метрики по эпохам в TensorBoard
-            self.writer.add_scalar('Loss/Train', train_metrics['loss'], epoch)
-            self.writer.add_scalar('Loss/Val', val_metrics['loss'], epoch)
-            self.writer.add_scalar('Accuracy/Train', train_metrics['accuracy'], epoch)
-            self.writer.add_scalar('Accuracy/Val', val_metrics['accuracy'], epoch)
-            self.writer.add_scalar('Learning_Rate', current_lr, epoch)
-            
-            # Логируем в W&B
-            if self.use_wandb and self.wandb:
-                self.wandb.log({
-                    'train_loss': train_metrics['loss'],
-                    'val_loss': val_metrics['loss'],
-                    'train_acc': train_metrics['accuracy'],
-                    'val_acc': val_metrics['accuracy'],
-                    'lr': current_lr
-                }, step=epoch)
-            
-            # Сохраняем лучшую модель
-            checkpoint(self.model, val_metrics['accuracy'], epoch)
-            
-            # Выводим метрики
-            print(f"Train Loss: {train_metrics['loss']:.4f}, Train Acc: {train_metrics['accuracy']:.2f}%")
-            print(f"Val Loss:   {val_metrics['loss']:.4f}, Val Acc:   {val_metrics['accuracy']:.2f}%")
-            print(f"Learning Rate: {current_lr:.6f}")
-            
-            # Early stopping
-            if early_stopping(val_metrics['accuracy']):
-                print(f"\nEarly stopping на эпохе {epoch + 1}")
-                print(f"Лучшая валидационная точность: {early_stopping.best_score:.2f}%")
-                break
-            
-            best_val_acc = max(best_val_acc, val_metrics['accuracy'])
-        
-        print("\n" + "=" * 60)
-        print(f"Обучение завершено!")
-        print(f"Лучшая валидационная точность: {best_val_acc:.2f}%")
-        print("=" * 60)
-        
-        # Сохраняем историю
-        if save_history:
-            # Определяем базовое имя модели из checkpoint_path
-            import os
-            model_name = os.path.basename(checkpoint_path).replace('.pth', '')
-            
-            # Сохраняем историю в workspace/models/metrics/
-            os.makedirs('workspace/models/metrics', exist_ok=True)
-            
-            history_path = f'workspace/models/metrics/{model_name}_history.pkl'
-            self.history.save(history_path)
-            print(f"История обучения сохранена: {history_path}")
-            
-            # Сохраняем в CSV
-            csv_path = f'workspace/models/metrics/{model_name}_history.csv'
-            self.history.save_to_csv(csv_path)
-            
-            # Строим графики
-            plot_path = f'workspace/models/metrics/{model_name}_training_curves.png'
-            self.history.plot_history(save_path=plot_path, show=False)
-            
-            # Анализ переобученности
-            overfitting_analysis = self.history.analyze_overfitting()
-            if overfitting_analysis:
-                print("\n" + "=" * 60)
-                print("АНАЛИЗ ПЕРЕОБУЧЕННОСТИ")
-                print("=" * 60)
-                print(f"Переобученность: {overfitting_analysis['overfitting_severity']}")
-                print(f"Финальный gap по accuracy: {overfitting_analysis['final_acc_gap']:.2f}%")
-                print(f"  Train Acc: {overfitting_analysis['final_train_acc']:.2f}%")
-                print(f"  Val Acc:   {overfitting_analysis['final_val_acc']:.2f}%")
-                print(f"Финальный gap по loss: {overfitting_analysis['final_loss_gap']:.4f}")
-                print(f"  Train Loss: {overfitting_analysis['final_train_loss']:.4f}")
-                print(f"  Val Loss:   {overfitting_analysis['final_val_loss']:.4f}")
-                print(f"\nЛучшая валидационная точность: {overfitting_analysis['best_val_acc']:.2f}%")
-                print(f"Достигнута на эпохе: {overfitting_analysis['best_val_acc_epoch']}")
+        try:
+            for epoch in range(num_epochs):
+                log_print(f"\nЭпоха {epoch + 1}/{num_epochs}")
+                log_print("-" * 60)
                 
-                if overfitting_analysis['is_overfitting']:
-                    print(f"\n⚠️  Обнаружена переобученность!")
-                    print(f"   Рекомендации:")
-                    print(f"   - Увеличить dropout")
-                    print(f"   - Добавить регуляризацию")
-                    print(f"   - Увеличить размер обучающей выборки")
-                    print(f"   - Уменьшить сложность модели")
-                else:
-                    print(f"\n✓ Переобученность не обнаружена")
-                print("=" * 60)
+                # Обучение
+                train_metrics = self.train_epoch(train_loader)
+                
+                # Валидация
+                val_metrics = self.validate(val_loader)
+                
+                # Learning rate scheduler
+                self.lr_scheduler.step(val_metrics['loss'])
+                current_lr = self.lr_scheduler.get_lr()
+                
+                # Обновляем историю
+                self.history.update(
+                    train_metrics['loss'],
+                    train_metrics['accuracy'],
+                    val_metrics['loss'],
+                    val_metrics['accuracy'],
+                    current_lr
+                )
+                
+                # Логируем метрики по эпохам в TensorBoard
+                self.writer.add_scalar('Loss/Train', train_metrics['loss'], epoch)
+                self.writer.add_scalar('Loss/Val', val_metrics['loss'], epoch)
+                self.writer.add_scalar('Accuracy/Train', train_metrics['accuracy'], epoch)
+                self.writer.add_scalar('Accuracy/Val', val_metrics['accuracy'], epoch)
+                self.writer.add_scalar('Learning_Rate', current_lr, epoch)
+                
+                # Логируем в W&B
+                if self.use_wandb and self.wandb:
+                    self.wandb.log({
+                        'train_loss': train_metrics['loss'],
+                        'val_loss': val_metrics['loss'],
+                        'train_acc': train_metrics['accuracy'],
+                        'val_acc': val_metrics['accuracy'],
+                        'lr': current_lr
+                    }, step=epoch)
+                
+                # Сохраняем лучшую модель
+                checkpoint(self.model, val_metrics['accuracy'], epoch)
+            
+                # Выводим метрики
+                log_print(f"Train Loss: {train_metrics['loss']:.4f}, Train Acc: {train_metrics['accuracy']:.2f}%")
+                log_print(f"Val Loss:   {val_metrics['loss']:.4f}, Val Acc:   {val_metrics['accuracy']:.2f}%")
+                log_print(f"Learning Rate: {current_lr:.6f}")
+                
+                # Сохраняем историю после каждой эпохи (для защиты от прерываний)
+                if save_history and len(self.history.history['train_loss']) > 0:
+                    try:
+                        self.history.save_to_csv(history_csv_path)
+                        self.history.save(history_pkl_path)
+                    except Exception as e:
+                        log_print(f"⚠️  Ошибка при сохранении истории: {e}")
+                
+                # Early stopping
+                if early_stopping(val_metrics['accuracy']):
+                    log_print(f"\nEarly stopping на эпохе {epoch + 1}")
+                    log_print(f"Лучшая валидационная точность: {early_stopping.best_score:.2f}%")
+                    break
+                
+                best_val_acc = max(best_val_acc, val_metrics['accuracy'])
         
-        # Загружаем лучшие веса
-        checkpoint.load_best_model(self.model)
-        print(f"Загружены лучшие веса из: {checkpoint_path}")
+        except KeyboardInterrupt:
+            interrupted = True
+            log_print("\n" + "=" * 60)
+            log_print("⚠️  ОБУЧЕНИЕ ПРЕРВАНО ПОЛЬЗОВАТЕЛЕМ (Ctrl+C)")
+            log_print("=" * 60)
+            log_print(f"Обработано эпох: {len(self.history.history['train_loss'])}")
+            log_print(f"Лучшая валидационная точность: {best_val_acc:.2f}%")
         
-        # Закрываем TensorBoard writer
-        self.writer.close()
+        except Exception as e:
+            interrupted = True
+            log_print("\n" + "=" * 60)
+            log_print(f"❌ ОШИБКА ПРИ ОБУЧЕНИИ: {e}")
+            log_print("=" * 60)
+            import traceback
+            log_print(traceback.format_exc())
+            log_print(f"Обработано эпох: {len(self.history.history['train_loss'])}")
+            log_print(f"Лучшая валидационная точность: {best_val_acc:.2f}%")
         
-        # Завершаем W&B сессию
-        if self.use_wandb and self.wandb:
-            self.wandb.finish()
+        finally:
+            # Гарантированно сохраняем все данные
+            if not interrupted:
+                log_print("\n" + "=" * 60)
+                log_print(f"Обучение завершено!")
+                log_print(f"Лучшая валидационная точность: {best_val_acc:.2f}%")
+                log_print("=" * 60)
+            
+            # Сохраняем историю (если есть данные)
+            if save_history and len(self.history.history['train_loss']) > 0:
+                try:
+                    log_print(f"\nСохранение истории обучения...")
+                    self.history.save(history_pkl_path)
+                    log_print(f"  ✓ История сохранена: {history_pkl_path}")
+                    
+                    self.history.save_to_csv(history_csv_path)
+                    log_print(f"  ✓ CSV сохранен: {history_csv_path}")
+                    
+                    # Строим графики
+                    try:
+                        self.history.plot_history(save_path=plot_path, show=False)
+                        log_print(f"  ✓ Графики сохранены: {plot_path}")
+                    except Exception as e:
+                        log_print(f"  ⚠️  Ошибка при создании графиков: {e}")
+                    
+                    # Анализ переобученности
+                    try:
+                        overfitting_analysis = self.history.analyze_overfitting()
+                        if overfitting_analysis:
+                            log_print("\n" + "=" * 60)
+                            log_print("АНАЛИЗ ПЕРЕОБУЧЕННОСТИ")
+                            log_print("=" * 60)
+                            log_print(f"Переобученность: {overfitting_analysis['overfitting_severity']}")
+                            log_print(f"Финальный gap по accuracy: {overfitting_analysis['final_acc_gap']:.2f}%")
+                            log_print(f"  Train Acc: {overfitting_analysis['final_train_acc']:.2f}%")
+                            log_print(f"  Val Acc:   {overfitting_analysis['final_val_acc']:.2f}%")
+                            log_print(f"Финальный gap по loss: {overfitting_analysis['final_loss_gap']:.4f}")
+                            log_print(f"  Train Loss: {overfitting_analysis['final_train_loss']:.4f}")
+                            log_print(f"  Val Loss:   {overfitting_analysis['final_val_loss']:.4f}")
+                            log_print(f"\nЛучшая валидационная точность: {overfitting_analysis['best_val_acc']:.2f}%")
+                            log_print(f"Достигнута на эпохе: {overfitting_analysis['best_val_acc_epoch']}")
+                            
+                            if overfitting_analysis['is_overfitting']:
+                                log_print(f"\n⚠️  Обнаружена переобученность!")
+                                log_print(f"   Рекомендации:")
+                                log_print(f"   - Увеличить dropout")
+                                log_print(f"   - Добавить регуляризацию")
+                                log_print(f"   - Увеличить размер обучающей выборки")
+                                log_print(f"   - Уменьшить сложность модели")
+                            else:
+                                log_print(f"\n✓ Переобученность не обнаружена")
+                            log_print("=" * 60)
+                    except Exception as e:
+                        log_print(f"  ⚠️  Ошибка при анализе переобученности: {e}")
+                except Exception as e:
+                    log_print(f"❌ Критическая ошибка при сохранении истории: {e}")
+                    import traceback
+                    log_print(traceback.format_exc())
+            
+            # Загружаем лучшие веса
+            try:
+                checkpoint.load_best_model(self.model)
+                log_print(f"Загружены лучшие веса из: {checkpoint_path}")
+            except Exception as e:
+                log_print(f"⚠️  Ошибка при загрузке лучших весов: {e}")
+            
+            # Закрываем TensorBoard writer
+            try:
+                self.writer.flush()  # Гарантируем запись всех данных
+                self.writer.close()
+                log_print(f"TensorBoard логи сохранены")
+            except Exception as e:
+                log_print(f"⚠️  Ошибка при закрытии TensorBoard writer: {e}")
+            
+            # Завершаем W&B сессию
+            if self.use_wandb and self.wandb:
+                try:
+                    self.wandb.finish()
+                    log_print(f"W&B сессия завершена")
+                except Exception as e:
+                    log_print(f"⚠️  Ошибка при завершении W&B: {e}")
+            
+            # Финальное сообщение
+            if interrupted:
+                log_print(f"\n⚠️  Обучение было прервано, но все доступные данные сохранены в: {analysis_subdir}")
+            else:
+                log_print(f"\n✓ Все данные сохранены в: {analysis_subdir}")
+            
+            # Закрываем файл лога в самом конце
+            log_file.close()
+            
+            # Выводим финальное сообщение в консоль
+            if interrupted:
+                print(f"\n⚠️  Обучение было прервано, но все доступные данные сохранены в: {analysis_subdir}")
+            else:
+                print(f"\n✓ Все данные сохранены в: {analysis_subdir}")
     
     def load_checkpoint(self, checkpoint_path: str):
         """Загружает веса модели из checkpoint"""

@@ -184,10 +184,10 @@ def main():
   python full_pipeline.py --months 12 --epochs 50 --batch-size 16
   
   # С оптимизацией фичей (объединенный анализ)
-  python full_pipeline.py --months 12 --remove-correlated
+  python full_pipeline.py --months 12 --analyze-features
   
   # С оптимизацией фичей и кастомным порогом корреляции
-  python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
+  python full_pipeline.py --months 12 --analyze-features --correlation-threshold 0.90
   
   # Режим offline (без подключения к MT5, только кэшированные данные)
   python full_pipeline.py --offline --days 30
@@ -247,12 +247,6 @@ def main():
     )
     
     parser.add_argument(
-        '--remove-correlated',
-        action='store_true',
-        help='Выполнить объединенный анализ фичей и создать список исключений (использует analyze_and_exclude_features.py)'
-    )
-    
-    parser.add_argument(
         '--correlation-threshold',
         type=float,
         default=0.95,
@@ -262,13 +256,7 @@ def main():
     parser.add_argument(
         '--analyze-features',
         action='store_true',
-        help='Выполнить объединенный анализ фичей (аналогично --remove-correlated, включает все типы анализа)'
-    )
-    
-    parser.add_argument(
-        '--generate-feature-plots',
-        action='store_true',
-        help='[УСТАРЕЛО] Параметр больше не используется (графики не генерируются в объединенном скрипте)'
+        help='Выполнить объединенный анализ фичей и создать список исключений (использует analyze_and_exclude_features.py, включает все типы анализа)'
     )
     
     parser.add_argument(
@@ -406,8 +394,8 @@ def main():
     print(f"  Символ: {args.symbol}")
     print(f"  Тики: {'Нет' if args.no_ticks else 'Да'}")
     print(f"  Старшие таймфреймы: {'Нет' if args.no_higher_tf else 'Да'}")
-    print(f"  Оптимизация фичей: {'Да' if (args.remove_correlated or args.analyze_features) else 'Нет'}")
-    if args.remove_correlated or args.analyze_features:
+    print(f"  Оптимизация фичей: {'Да' if args.analyze_features else 'Нет'}")
+    if args.analyze_features:
         print(f"  Порог корреляции: {args.correlation_threshold}")
         print(f"  Используется: analyze_and_exclude_features.py")
         print(f"  Детальные результаты: {'Да' if args.save_detailed_analyze else 'Нет'}")
@@ -487,7 +475,7 @@ def main():
                 return 1
             
             # Оптимизация фичей: объединенный анализ и исключение
-            if args.remove_correlated or args.analyze_features:
+            if args.analyze_features:
                 print("\n" + "=" * 80)
                 print("ОПТИМИЗАЦИЯ ФИЧЕЙ: Объединенный анализ и исключение")
                 print("=" * 80)
@@ -519,15 +507,8 @@ def main():
                         '--test', test_path
                     ]
                     
-                    # Добавляем параметры, если указаны
-                    if args.remove_correlated:
-                        analyze_cmd.extend(['--correlation-threshold', str(args.correlation_threshold)])
-                    
-                    # Если указан только --analyze-features без --remove-correlated,
-                    # выполняем полный анализ (включая корреляцию)
-                    if args.analyze_features and not args.remove_correlated:
-                        # По умолчанию выполняем полный анализ
-                        pass
+                    # Добавляем параметр порога корреляции
+                    analyze_cmd.extend(['--correlation-threshold', str(args.correlation_threshold)])
                     
                     # Добавляем параметр сохранения детальных результатов
                     if args.save_detailed_analyze:

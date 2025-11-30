@@ -235,13 +235,10 @@ config = FeatureConfig(
 
 ```bash
 # Оптимизация фичей (объединенный анализ)
-python full_pipeline.py --months 3 --remove-correlated
+python full_pipeline.py --months 3 --analyze-features
 
 # С кастомным порогом корреляции
-python full_pipeline.py --months 3 --remove-correlated --correlation-threshold 0.90
-
-# Полный анализ (аналогично --remove-correlated)
-python full_pipeline.py --months 3 --analyze-features
+python full_pipeline.py --months 3 --analyze-features --correlation-threshold 0.90
 ```
 
 #### Отдельно
@@ -539,10 +536,10 @@ backtester.anomaly_threshold = 2.5  # 2.5σ вместо 3σ
 
 ```bash
 # Автоматическое удаление коррелированных фичей в полном цикле
-python full_pipeline.py --months 12 --remove-correlated
+python full_pipeline.py --months 12 --analyze-features
 
 # С кастомным порогом корреляции
-python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
+python full_pipeline.py --months 12 --analyze-features --correlation-threshold 0.90
 ```
 
 #### Вариант 2: Вручную (для детального анализа)
@@ -564,10 +561,10 @@ python train_all_models.py
 
 ```bash
 # Автоматическое удаление с порогом 0.95 (по умолчанию)
-python full_pipeline.py --months 12 --remove-correlated
+python full_pipeline.py --months 12 --analyze-features
 
 # С настройкой порога корреляции
-python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
+python full_pipeline.py --months 12 --analyze-features --correlation-threshold 0.90
 ```
 
 #### Как это работает

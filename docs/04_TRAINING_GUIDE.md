@@ -20,10 +20,10 @@ python full_pipeline.py --months 12 --encoder-only --epochs 50
 # С оптимизацией фичей (объединенный анализ)
 # Примечание: анализ выполняется на объединенном датасете (train+val+test)
 # для гарантии одинакового набора фичей во всех файлах
-python full_pipeline.py --months 12 --remove-correlated
+python full_pipeline.py --months 12 --analyze-features
 
 # С кастомным порогом корреляции
-python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
+python full_pipeline.py --months 12 --analyze-features --correlation-threshold 0.90
 
 # Пропустить этапы (если данные/модели уже есть)
 python full_pipeline.py --skip-prepare  # Пропустить подготовку данных

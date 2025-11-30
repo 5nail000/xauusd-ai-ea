@@ -222,7 +222,7 @@ print(train_df['signal_class'].value_counts(normalize=True) * 100)
 **Рекомендуется:**
 ```bash
 # Запустите удаление высококоррелированных фичей
-python full_pipeline.py --months 6 --remove-correlated --correlation-threshold 0.95
+python full_pipeline.py --months 6 --analyze-features --correlation-threshold 0.95
 ```
 
 **Это удалит:**
@@ -308,10 +308,7 @@ python -c "import pandas as pd; df = pd.read_csv('workspace/prepared/features/go
 
 ```bash
 # 1. Удалите высококоррелированные фичи
-python full_pipeline.py --months 6 --remove-correlated --correlation-threshold 0.95
-
-# 2. Проведите анализ фичей (опционально)
-python full_pipeline.py --months 6 --analyze-features
+python full_pipeline.py --months 6 --analyze-features --correlation-threshold 0.95
 
 # 3. Запустите обучение
 python train_all_models.py \

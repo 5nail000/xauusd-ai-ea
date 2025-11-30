@@ -31,6 +31,12 @@
   - Обновлен `full_pipeline.py` для использования нового объединенного скрипта
   - Обновлена вся документация с актуальными примерами использования
 
+- **Упрощение API full_pipeline.py**
+  - Удален флаг `--remove-correlated` (дублировал функционал `--analyze-features`)
+  - Теперь используется только `--analyze-features` для запуска комплексного анализа фичей
+  - Упрощена логика: `--analyze-features` всегда выполняет полный анализ (корреляция + комплексный анализ)
+  - Обновлена вся документация с заменой `--remove-correlated` на `--analyze-features`
+
 ## [2025-11-29]
 
 ### Добавлено
@@ -155,12 +161,11 @@
   - Анализ выбросов (IQR и Z-score методы)
   - Анализ распределений по классам (дифференциация между классами)
   - HTML отчет со сводной информацией и рекомендациями
-  - Опциональная генерация графиков распределений и по классам
-  - Интеграция в `full_pipeline.py` через параметры `--analyze-features` и `--generate-feature-plots`
+  - Интеграция в `full_pipeline.py` через параметр `--analyze-features`
   - Анализ работает независимо от удаления корреляций
-  - Результаты сохраняются в `workspace/analysis-of-features/`
+  - Результаты сохраняются в `workspace/analysis-of-features/` (опционально через `--save-detailed-analyze`)
   - Детальное описание всех метрик и их интерпретации включено в `docs/11_FEATURE_OPTIMIZATION.md`
-  - Примеры: `python full_pipeline.py --months 3 --analyze-features --generate-feature-plots`
+  - Примеры: `python full_pipeline.py --months 3 --analyze-features --save-detailed-analyze`
 - **Переход на формат Parquet для сохранения тиков**
   - Тики теперь сохраняются в формате Parquet (`.parquet`) вместо Pickle (`.pkl`)
   - Кроссплатформенная совместимость между Windows и Linux

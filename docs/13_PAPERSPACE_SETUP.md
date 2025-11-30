@@ -209,7 +209,7 @@ python prepare_gold_data.py --offline --days 30
 python full_pipeline.py --offline --days 30
 
 # С удалением коррелированных фичей
-python full_pipeline.py --offline --days 30 --remove-correlated
+python full_pipeline.py --offline --days 30 --analyze-features
 ```
 
 **Преимущества offline режима на Paperspace:**

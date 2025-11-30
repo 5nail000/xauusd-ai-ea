@@ -105,16 +105,13 @@ python prepare_gold_data.py --months 6 --no-ask
 
 ```bash
 # Базовый анализ с порогом корреляции 0.95 (по умолчанию)
-python full_pipeline.py --skip-prepare --skip-train --skip-backtest --remove-correlated
+python full_pipeline.py --skip-prepare --skip-train --skip-backtest --analyze-features
 
 # С кастомным порогом корреляции
-python full_pipeline.py --skip-prepare --skip-train --skip-backtest --remove-correlated --correlation-threshold 0.90
+python full_pipeline.py --skip-prepare --skip-train --skip-backtest --analyze-features --correlation-threshold 0.90
 
 # С порогом 0.85 (более агрессивное исключение)
-python full_pipeline.py --skip-prepare --skip-train --skip-backtest --remove-correlated --correlation-threshold 0.85
-
-# Полный анализ (включает все типы проверок)
-python full_pipeline.py --skip-prepare --skip-train --skip-backtest --analyze-features
+python full_pipeline.py --skip-prepare --skip-train --skip-backtest --analyze-features --correlation-threshold 0.85
 ```
 
 **Или напрямую через скрипт:**
@@ -412,13 +409,10 @@ python full_pipeline.py
 python full_pipeline.py --months 6 --encoder-only
 
 # 12 месяцев, обе модели, с оптимизацией фичей
-python full_pipeline.py --months 12 --remove-correlated
-
-# С полным анализом фичей (включает все типы проверок)
 python full_pipeline.py --months 12 --analyze-features
 
 # С сохранением детальных результатов (CSV и HTML)
-python full_pipeline.py --months 12 --remove-correlated --save-detailed-analyze
+python full_pipeline.py --months 12 --analyze-features --save-detailed-analyze
 
 # С кастомными параметрами обучения
 python full_pipeline.py --months 6 --encoder-only --epochs 50 --batch-size 16
@@ -533,7 +527,7 @@ python backtest_strategy.py
 python prepare_gold_data.py --months 6
 
 # 2. Оптимизация фичей (объединенный анализ)
-python full_pipeline.py --skip-prepare --skip-train --skip-backtest --remove-correlated --correlation-threshold 0.90
+python full_pipeline.py --skip-prepare --skip-train --skip-backtest --analyze-features --correlation-threshold 0.90
 
 # Или напрямую через скрипт:
 python analyze_and_exclude_features.py --correlation-threshold 0.90
@@ -680,10 +674,8 @@ python cloud_services.py hf-download-training --repo-id username/dataset-name
 
 | Параметр | Описание | По умолчанию |
 |----------|----------|--------------|
-| `--remove-correlated` | Удалить высококоррелированные фичи | False |
+| `--analyze-features` | Комплексный анализ фичей и создание списка исключений | False |
 | `--correlation-threshold` | Порог корреляции | 0.95 |
-| `--analyze-features` | Комплексный анализ фичей | False |
-| `--generate-feature-plots` | [УСТАРЕЛО] Параметр больше не используется | False |
 | `--save-detailed-analyze` | Сохранить детальные результаты анализа в workspace/analysis-of-features/ | False |
 | `--model-type` | Тип модели для бэктестинга (encoder/timeseries) | encoder |
 | `--skip-prepare` | Пропустить подготовку данных | False |

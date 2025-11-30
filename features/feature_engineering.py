@@ -70,7 +70,8 @@ class FeatureEngineer:
                        add_targets: bool = True,
                        symbol: str = 'XAUUSD',
                        save_intermediate: bool = True,
-                       resume: bool = True) -> pd.DataFrame:
+                       resume: bool = True,
+                       apply_tick_exclusions: bool = False) -> pd.DataFrame:
         """
         Создает все фичи из сырых данных
         
@@ -82,6 +83,7 @@ class FeatureEngineer:
             symbol: Символ для кэширования (по умолчанию 'XAUUSD')
             save_intermediate: Сохранять ли промежуточные результаты
             resume: Продолжить с сохраненного прогресса, если он есть
+            apply_tick_exclusions: Применять ли список исключений при генерации тиковых фичей (по умолчанию: False)
         
         Returns:
             DataFrame со всеми фичами
@@ -272,7 +274,8 @@ class FeatureEngineer:
                 df = add_tick_features_to_minute_data(
                     df,
                     ticks_data,
-                    intervals=self.config.tick_candle_intervals
+                    intervals=self.config.tick_candle_intervals,
+                    apply_exclusions=apply_tick_exclusions
                 )
                 if save_intermediate:
                     self._save_intermediate_result(symbol, 'after_tick_features', df)

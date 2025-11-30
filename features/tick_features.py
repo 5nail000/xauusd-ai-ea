@@ -3,8 +3,9 @@
 """
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 from datetime import datetime, timedelta
+from pathlib import Path
 
 def _get_timestamp() -> str:
     """Возвращает форматированную временную метку"""
@@ -177,18 +178,24 @@ def add_tick_statistics_features(ticks_df: pd.DataFrame,
     return df
 
 def aggregate_second_candles_features(second_candles: Dict[int, pd.DataFrame],
-                                     minute_time: datetime) -> pd.Series:
+                                     minute_time: datetime,
+                                     excluded_features: Optional[Set[str]] = None) -> pd.Series:
     """
     Агрегирует фичи из секундных свечей для минутной свечи
     
     Args:
         second_candles: Словарь {interval: DataFrame} с секундными свечами
         minute_time: Время минутной свечи
+        excluded_features: Множество фичей для исключения (если None, проверка не выполняется)
     
     Returns:
         Series с агрегированными фичами
     """
     features = {}
+    
+    # Если список исключений не передан, создаем пустое множество
+    if excluded_features is None:
+        excluded_features = set()
     
     for interval, candles in second_candles.items():
         if candles.empty:
@@ -198,51 +205,107 @@ def aggregate_second_candles_features(second_candles: Dict[int, pd.DataFrame],
         
         # Базовые статистики по позиционированию
         if 'close_position_in_range' in candles.columns:
-            features[f'{prefix}_close_pos_mean'] = candles['close_position_in_range'].mean()
-            features[f'{prefix}_close_pos_std'] = candles['close_position_in_range'].std()
-            features[f'{prefix}_close_pos_min'] = candles['close_position_in_range'].min()
-            features[f'{prefix}_close_pos_max'] = candles['close_position_in_range'].max()
-            features[f'{prefix}_close_pos_median'] = candles['close_position_in_range'].median()
+            feature_name = f'{prefix}_close_pos_mean'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['close_position_in_range'].mean()
+            
+            feature_name = f'{prefix}_close_pos_std'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['close_position_in_range'].std()
+            
+            feature_name = f'{prefix}_close_pos_min'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['close_position_in_range'].min()
+            
+            feature_name = f'{prefix}_close_pos_max'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['close_position_in_range'].max()
+            
+            feature_name = f'{prefix}_close_pos_median'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['close_position_in_range'].median()
         
         # Статистики по расстояниям
         if 'distance_to_high_pct' in candles.columns:
-            features[f'{prefix}_dist_high_mean'] = candles['distance_to_high_pct'].mean()
-            features[f'{prefix}_dist_low_mean'] = candles['distance_to_low_pct'].mean()
+            feature_name = f'{prefix}_dist_high_mean'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['distance_to_high_pct'].mean()
+            
+            feature_name = f'{prefix}_dist_low_mean'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['distance_to_low_pct'].mean()
         
         # Статистики по спреду
         if 'spread' in candles.columns:
-            features[f'{prefix}_spread_mean'] = candles['spread'].mean()
-            features[f'{prefix}_spread_max'] = candles['spread'].max()
-            features[f'{prefix}_spread_min'] = candles['spread'].min()
-            features[f'{prefix}_spread_std'] = candles['spread'].std()
+            feature_name = f'{prefix}_spread_mean'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['spread'].mean()
+            
+            feature_name = f'{prefix}_spread_max'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['spread'].max()
+            
+            feature_name = f'{prefix}_spread_min'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['spread'].min()
+            
+            feature_name = f'{prefix}_spread_std'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['spread'].std()
         
         # Статистики по тиковому объему
         if 'tick_count' in candles.columns:
-            features[f'{prefix}_tick_count_sum'] = candles['tick_count'].sum()
-            features[f'{prefix}_tick_count_mean'] = candles['tick_count'].mean()
-            features[f'{prefix}_tick_count_max'] = candles['tick_count'].max()
+            feature_name = f'{prefix}_tick_count_sum'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['tick_count'].sum()
+            
+            feature_name = f'{prefix}_tick_count_mean'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['tick_count'].mean()
+            
+            feature_name = f'{prefix}_tick_count_max'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['tick_count'].max()
         
         # Статистики по скорости тиков
         if 'tick_rate' in candles.columns:
-            features[f'{prefix}_tick_rate_mean'] = candles['tick_rate'].mean()
-            features[f'{prefix}_tick_rate_max'] = candles['tick_rate'].max()
+            feature_name = f'{prefix}_tick_rate_mean'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['tick_rate'].mean()
+            
+            feature_name = f'{prefix}_tick_rate_max'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['tick_rate'].max()
         
         # Статистики по волатильности тиков
         if 'tick_volatility' in candles.columns:
-            features[f'{prefix}_tick_vol_mean'] = candles['tick_volatility'].mean()
-            features[f'{prefix}_tick_vol_max'] = candles['tick_volatility'].max()
+            feature_name = f'{prefix}_tick_vol_mean'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['tick_volatility'].mean()
+            
+            feature_name = f'{prefix}_tick_vol_max'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['tick_volatility'].max()
         
         # Статистики по соотношению bid up/down
         if 'bid_up_down_ratio' in candles.columns:
-            features[f'{prefix}_bid_ratio_mean'] = candles['bid_up_down_ratio'].mean()
-            features[f'{prefix}_bid_ratio_max'] = candles['bid_up_down_ratio'].max()
+            feature_name = f'{prefix}_bid_ratio_mean'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['bid_up_down_ratio'].mean()
+            
+            feature_name = f'{prefix}_bid_ratio_max'
+            if feature_name not in excluded_features:
+                features[feature_name] = candles['bid_up_down_ratio'].max()
     
     return pd.Series(features)
 
 def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
                                     ticks_data: Dict[datetime, pd.DataFrame],
                                     intervals: List[int],
-                                    skip_if_exists: bool = True) -> pd.DataFrame:
+                                    skip_if_exists: bool = True,
+                                    apply_exclusions: bool = False,
+                                    excluded_features: Optional[List[str]] = None,
+                                    exclusions_file: Optional[Path] = None) -> pd.DataFrame:
     """
     Добавляет тиковые фичи к минутным данным
     
@@ -251,10 +314,31 @@ def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
         ticks_data: Словарь {minute_time: ticks_df} с тиковыми данными
         intervals: Список интервалов для секундных свечей
         skip_if_exists: Пропустить обработку, если тиковые фичи уже есть (по умолчанию: True)
+        apply_exclusions: Применять ли список исключений при генерации тиковых фичей (по умолчанию: False)
+        excluded_features: Список фичей для исключения (если None и apply_exclusions=True, загружается из файла)
+        exclusions_file: Путь к файлу со списком исключений (по умолчанию: workspace/excluded_features.txt)
     
     Returns:
         DataFrame с добавленными тиковыми фичами
     """
+    # Загружаем список исключений только если включена опция
+    excluded_features_set = set()
+    if apply_exclusions:
+        if excluded_features is None:
+            try:
+                from utils.feature_exclusions import load_excluded_features
+                if exclusions_file is None:
+                    exclusions_file = Path('workspace/excluded_features.txt')
+                excluded_features = load_excluded_features(exclusions_file)
+                if excluded_features:
+                    print(f"[{_get_timestamp()}] Загружено {len(excluded_features)} фичей для исключения из генерации тиковых фичей")
+            except Exception as e:
+                print(f"[{_get_timestamp()}] ⚠️  Предупреждение: Не удалось загрузить список исключений: {e}")
+                excluded_features = []
+        
+        # Преобразуем в множество для быстрой проверки
+        excluded_features_set = set(excluded_features) if excluded_features else set()
+    
     df = df_minute.copy()
     
     # Проверяем, есть ли уже тиковые фичи
@@ -350,8 +434,12 @@ def add_tick_features_to_minute_data(df_minute: pd.DataFrame,
                 candles = add_tick_statistics_features(ticks_df, candles)
                 second_candles[interval] = candles
         
-        # Агрегируем фичи
-        features = aggregate_second_candles_features(second_candles, minute_time)
+        # Агрегируем фичи (передаем список исключений только если включена опция)
+        features = aggregate_second_candles_features(
+            second_candles, 
+            minute_time, 
+            excluded_features_set if apply_exclusions else None
+        )
         tick_features_list.append(features)
     
     # Финальное сообщение о завершении обработки

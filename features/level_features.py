@@ -263,9 +263,22 @@ def add_support_resistance_features(df: pd.DataFrame,
             support_widths.append(support_width)
             support_strengths.append(support_strength)
         else:
-            support_levels.append(np.nan)
-            support_widths.append(np.nan)
-            support_strengths.append(0)
+            # Fallback: используем скользящий минимум за последние 20 свечей
+            # Это лучше, чем полный пропуск
+            if len(window_mins) > 0:
+                rolling_min = window_mins.min()
+                if pd.notna(rolling_min):
+                    support_levels.append(rolling_min)
+                    support_widths.append(avg_atr * 0.5)
+                    support_strengths.append(1)  # Минимальная сила
+                else:
+                    support_levels.append(np.nan)
+                    support_widths.append(np.nan)
+                    support_strengths.append(0)
+            else:
+                support_levels.append(np.nan)
+                support_widths.append(np.nan)
+                support_strengths.append(0)
         
         # Обработка сопротивлений (максимумы)
         cluster, center = find_level_with_fallback(
@@ -281,9 +294,22 @@ def add_support_resistance_features(df: pd.DataFrame,
             resistance_widths.append(resistance_width)
             resistance_strengths.append(resistance_strength)
         else:
-            resistance_levels.append(np.nan)
-            resistance_widths.append(np.nan)
-            resistance_strengths.append(0)
+            # Fallback: используем скользящий максимум за последние 20 свечей
+            # Это лучше, чем полный пропуск
+            if len(window_maxs) > 0:
+                rolling_max = window_maxs.max()
+                if pd.notna(rolling_max):
+                    resistance_levels.append(rolling_max)
+                    resistance_widths.append(avg_atr * 0.5)
+                    resistance_strengths.append(1)  # Минимальная сила
+                else:
+                    resistance_levels.append(np.nan)
+                    resistance_widths.append(np.nan)
+                    resistance_strengths.append(0)
+            else:
+                resistance_levels.append(np.nan)
+                resistance_widths.append(np.nan)
+                resistance_strengths.append(0)
     
     # 3. Сохраняем уровни
     df['support_level'] = support_levels
@@ -292,6 +318,69 @@ def add_support_resistance_features(df: pd.DataFrame,
     df['resistance_width'] = resistance_widths
     df['support_strength'] = support_strengths
     df['resistance_strength'] = resistance_strengths
+    
+    # 3.1. Forward fill уровней с ограничениями (уменьшаем пропуски)
+    # Заполняем пропуски последним найденным уровнем, но только если:
+    # - Прошло не более max_fill_candles свечей
+    # - Цена не ушла далеко от уровня (не более max_deviation_atr * ATR)
+    max_fill_candles = 50  # Максимум 50 свечей вперед
+    max_deviation_atr = 3.0  # Максимальное отклонение в единицах ATR
+    
+    # Forward fill для support_level
+    last_support_idx = -1
+    last_support_level = None
+    last_support_atr = None
+    for i in range(len(df)):
+        if pd.notna(df['support_level'].iloc[i]):
+            last_support_idx = i
+            last_support_level = df['support_level'].iloc[i]
+            # Используем средний ATR за последние 20 периодов
+            atr_window_start = max(0, i - 20)
+            last_support_atr = atr.iloc[atr_window_start:i+1].mean()
+        elif last_support_level is not None and (i - last_support_idx) <= max_fill_candles:
+            # Проверяем, не ушла ли цена слишком далеко
+            current_price = df['close'].iloc[i]
+            current_atr = atr.iloc[max(0, i - 20):i+1].mean() if i >= 20 else last_support_atr
+            price_deviation = abs(current_price - last_support_level)
+            max_allowed_deviation = max_deviation_atr * (current_atr if pd.notna(current_atr) else last_support_atr)
+            
+            if price_deviation <= max_allowed_deviation:
+                df.loc[df.index[i], 'support_level'] = last_support_level
+                # Используем последнюю известную ширину или оценку
+                if pd.notna(df['support_width'].iloc[last_support_idx]):
+                    df.loc[df.index[i], 'support_width'] = df['support_width'].iloc[last_support_idx]
+                else:
+                    df.loc[df.index[i], 'support_width'] = current_atr * 0.5 if pd.notna(current_atr) else np.nan
+                # Сохраняем последнюю известную силу (не уменьшаем, так как это количество касаний)
+                df.loc[df.index[i], 'support_strength'] = df['support_strength'].iloc[last_support_idx]
+    
+    # Forward fill для resistance_level
+    last_resistance_idx = -1
+    last_resistance_level = None
+    last_resistance_atr = None
+    for i in range(len(df)):
+        if pd.notna(df['resistance_level'].iloc[i]):
+            last_resistance_idx = i
+            last_resistance_level = df['resistance_level'].iloc[i]
+            # Используем средний ATR за последние 20 периодов
+            atr_window_start = max(0, i - 20)
+            last_resistance_atr = atr.iloc[atr_window_start:i+1].mean()
+        elif last_resistance_level is not None and (i - last_resistance_idx) <= max_fill_candles:
+            # Проверяем, не ушла ли цена слишком далеко
+            current_price = df['close'].iloc[i]
+            current_atr = atr.iloc[max(0, i - 20):i+1].mean() if i >= 20 else last_resistance_atr
+            price_deviation = abs(current_price - last_resistance_level)
+            max_allowed_deviation = max_deviation_atr * (current_atr if pd.notna(current_atr) else last_resistance_atr)
+            
+            if price_deviation <= max_allowed_deviation:
+                df.loc[df.index[i], 'resistance_level'] = last_resistance_level
+                # Используем последнюю известную ширину или оценку
+                if pd.notna(df['resistance_width'].iloc[last_resistance_idx]):
+                    df.loc[df.index[i], 'resistance_width'] = df['resistance_width'].iloc[last_resistance_idx]
+                else:
+                    df.loc[df.index[i], 'resistance_width'] = current_atr * 0.5 if pd.notna(current_atr) else np.nan
+                # Сохраняем последнюю известную силу (не уменьшаем, так как это количество касаний)
+                df.loc[df.index[i], 'resistance_strength'] = df['resistance_strength'].iloc[last_resistance_idx]
     
     # 4. Вычисляем ОТНОСИТЕЛЬНЫЕ расстояния
     # Расстояние до поддержки в сигмах (стандартизация!)
@@ -321,8 +410,17 @@ def add_support_resistance_features(df: pd.DataFrame,
     )
     
     # Бинарные признаки: цена в зоне поддержки/сопротивления?
-    df['in_support_zone'] = (abs(df['distance_to_support_sigma']) < 1.0).astype(int)
-    df['in_resistance_zone'] = (abs(df['distance_to_resistance_sigma']) < 1.0).astype(int)
+    # Используем NaN когда уровень не найден (а не 0), чтобы не вводить модель в заблуждение
+    df['in_support_zone'] = np.where(
+        df['support_level'].notna(),
+        (abs(df['distance_to_support_sigma']) < 1.0).astype(int),
+        np.nan
+    )
+    df['in_resistance_zone'] = np.where(
+        df['resistance_level'].notna(),
+        (abs(df['distance_to_resistance_sigma']) < 1.0).astype(int),
+        np.nan
+    )
     
     # Близость к уровню (чем ближе, тем выше значение, экспоненциальный спад)
     df['proximity_to_support'] = np.exp(-abs(df['distance_to_support_sigma']) / 2.0)

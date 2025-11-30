@@ -111,6 +111,12 @@ def main():
         help='Метод балансировки классов: undersample (уменьшить большие классы) или oversample (увеличить малые) (по умолчанию: undersample)'
     )
     
+    parser.add_argument(
+        '--apply-tick-exclusions',
+        action='store_true',
+        help='Применять список исключений из excluded_features.txt при генерации тиковых фичей'
+    )
+    
     args = parser.parse_args()
     
     # Определяем период для отображения
@@ -162,7 +168,8 @@ def main():
         load_higher_tf=not args.no_higher_tf,
         use_cache=not args.no_cache,
         force_regenerate=args.force,
-        ask_on_existing=not args.no_ask
+        ask_on_existing=not args.no_ask,
+        apply_tick_exclusions=args.apply_tick_exclusions
     )
     
     # Сохраняем подготовленные данные

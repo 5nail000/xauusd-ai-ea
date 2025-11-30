@@ -265,6 +265,12 @@ def main():
         help='Сохранить детальные результаты анализа фичей в workspace/analysis-of-features/ (CSV файлы и HTML отчет)'
     )
     
+    parser.add_argument(
+        '--apply-tick-exclusions',
+        action='store_true',
+        help='Применять список исключений из excluded_features.txt при генерации тиковых фичей'
+    )
+    
     # Параметры обучения
     parser.add_argument(
         '--encoder-only',
@@ -468,6 +474,8 @@ def main():
                 prepare_cmd.append('--no-cache')
             if args.offline:
                 prepare_cmd.append('--offline')
+            if args.apply_tick_exclusions:
+                prepare_cmd.append('--apply-tick-exclusions')
             prepare_cmd.append('--no-ask')  # Не спрашивать при наличии данных
             
             if not run_command(prepare_cmd, "ЭТАП 1: Подготовка данных"):

@@ -422,7 +422,8 @@ class GoldDataPreparator:
                             load_higher_tf: bool = True,
                             use_cache: bool = True,
                             force_regenerate: bool = False,
-                            ask_on_existing: bool = True) -> pd.DataFrame:
+                            ask_on_existing: bool = True,
+                            apply_tick_exclusions: bool = False) -> pd.DataFrame:
         """
         Подготавливает полный датасет для обучения
         
@@ -526,7 +527,8 @@ class GoldDataPreparator:
             add_targets=False,  # Целевые переменные добавим отдельно
             symbol=symbol,
             save_intermediate=True,  # Сохранять промежуточные результаты
-            resume=True  # Продолжить с сохраненного прогресса
+            resume=True,  # Продолжить с сохраненного прогресса
+            apply_tick_exclusions=apply_tick_exclusions
         )
         
         # 5. Генерация целевых переменных

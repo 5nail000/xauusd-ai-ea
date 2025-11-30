@@ -232,6 +232,77 @@ def select_features_to_remove(high_corr_pairs: List[Tuple[str, str, float]],
     return features_to_remove
 
 
+def analyze_correlation_on_dataframe(combined_df: pd.DataFrame,
+                                     threshold: float = 0.95,
+                                     return_pairs: bool = False) -> Tuple[Set[str], List[Tuple[str, str, float]]]:
+    """
+    Анализирует корреляции на уже загруженном объединенном DataFrame
+    
+    Args:
+        combined_df: Объединенный DataFrame (train+val+test)
+        threshold: Порог корреляции
+        return_pairs: Если True, возвращает также список корреляционных пар
+    
+    Returns:
+        Множество фичей для удаления (или кортеж (features_to_remove, high_corr_pairs) если return_pairs=True)
+    """
+    # Выбор фичей (исключаем целевые переменные)
+    exclude_patterns_set = {'future_return', 'signal_class', 'signal_class_name', 'max_future_return'}
+    feature_columns = [
+        col for col in combined_df.columns 
+        if col not in exclude_patterns_set
+        and pd.api.types.is_numeric_dtype(combined_df[col])
+    ]
+    
+    logger.info(f"   Найдено {len(feature_columns)} фичей для анализа")
+    
+    # Проверка на NaN
+    logger.info("\nПроверка данных...")
+    nan_counts = combined_df[feature_columns].isna().sum()
+    cols_with_nan = nan_counts[nan_counts > 0]
+    
+    # Исключаем фичи с >50% пропусков из корреляционного анализа
+    high_missing_threshold = len(combined_df) * 0.5
+    high_missing_cols = nan_counts[nan_counts > high_missing_threshold].index.tolist()
+    if high_missing_cols:
+        logger.info(f"   ⚠️  {len(high_missing_cols)} фичей с >50% пропусков исключены из корреляционного анализа")
+        feature_columns = [col for col in feature_columns if col not in high_missing_cols]
+    
+    if len(cols_with_nan) > 0:
+        logger.info(f"   ⚠️  Найдено {len(cols_with_nan)} фичей с NaN значениями")
+        logger.info(f"   Заполняем NaN медианой...")
+        combined_df[feature_columns] = combined_df[feature_columns].fillna(combined_df[feature_columns].median())
+    else:
+        logger.info("   ✓ NaN значений не найдено")
+    
+    # Анализ корреляции на объединенном датасете
+    logger.info(f"\nАнализ корреляции на объединенном датасете (порог: {threshold})...")
+    high_corr_pairs = find_highly_correlated_pairs(combined_df, feature_columns, threshold)
+    
+    if len(high_corr_pairs) == 0:
+        logger.info(f"   ✓ Высококоррелированных пар (>{threshold}) не найдено")
+        if return_pairs:
+            return set(), []
+        return set()
+    
+    logger.info(f"   Найдено {len(high_corr_pairs)} высококоррелированных пар")
+    
+    # Выбор фичей для удаления
+    logger.info("\nВыбор фичей для удаления...")
+    logger.info(f"   Защищенные фичи (никогда не удаляются): {', '.join(PROTECTED_FEATURES)}")
+    features_to_remove = select_features_to_remove(high_corr_pairs, feature_columns)
+    
+    logger.info(f"\n✓ Будет удалено {len(features_to_remove)} фичей из всех датасетов")
+    for feat in sorted(list(features_to_remove)[:10]):
+        logger.info(f"     - {feat}")
+    if len(features_to_remove) > 10:
+        logger.info(f"     ... и еще {len(features_to_remove) - 10} фичей")
+    
+    if return_pairs:
+        return features_to_remove, high_corr_pairs
+    return features_to_remove
+
+
 def analyze_combined_datasets(train_path: str, val_path: str, test_path: str,
                               threshold: float = 0.95, return_pairs: bool = False):
     """
@@ -957,19 +1028,25 @@ def get_feature_columns(combined_df: pd.DataFrame) -> List[str]:
     return all_features
 
 
-def perform_correlation_analysis(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame,
-                                train_path: Path, val_path: Path, test_path: Path,
-                                threshold: float, save_details: bool) -> Tuple[Set[str], List[Tuple[str, str, float]]]:
+def perform_correlation_analysis(train_df: pd.DataFrame = None, val_df: pd.DataFrame = None, test_df: pd.DataFrame = None,
+                                train_path: Path = None, val_path: Path = None, test_path: Path = None,
+                                combined_df: pd.DataFrame = None,
+                                threshold: float = 0.95, save_details: bool = False) -> Tuple[Set[str], List[Tuple[str, str, float]]]:
     """
     Выполняет анализ корреляции
     
+    Может работать в двух режимах:
+    1. С уже загруженными DataFrame (передается combined_df) - оптимизированный режим
+    2. С путями к файлам (передается train_path, val_path, test_path) - загружает данные сам
+    
     Args:
-        train_df: Train DataFrame
-        val_df: Val DataFrame (может быть None)
-        test_df: Test DataFrame (может быть None)
-        train_path: Путь к train CSV
-        val_path: Путь к val CSV
-        test_path: Путь к test CSV
+        train_df: Train DataFrame (опционально, если используется combined_df)
+        val_df: Val DataFrame (опционально, если используется combined_df)
+        test_df: Test DataFrame (опционально, если используется combined_df)
+        train_path: Путь к train CSV (если combined_df не передан)
+        val_path: Путь к val CSV (если combined_df не передан)
+        test_path: Путь к test CSV (если combined_df не передан)
+        combined_df: Объединенный DataFrame (train+val+test) - используется если передан
         threshold: Порог корреляции
         save_details: Сохранять ли детальные результаты
     
@@ -981,28 +1058,79 @@ def perform_correlation_analysis(train_df: pd.DataFrame, val_df: pd.DataFrame, t
     correlated_features = set()
     
     try:
-        if val_path.exists() and test_path.exists():
-            # Анализ на объединенном датасете
+        # Если передан combined_df, используем его (оптимизированный режим)
+        if combined_df is not None:
+            logger.info("=" * 80)
+            logger.info("АНАЛИЗ КОРРЕЛЯЦИИ НА ОБЪЕДИНЕННОМ ДАТАСЕТЕ")
+            logger.info("=" * 80)
+            logger.info(f"   Объединенный датасет: {len(combined_df)} строк, {len(combined_df.columns)} колонок")
+            
             if save_details:
-                result = analyze_combined_datasets(
-                    str(train_path),
-                    str(val_path),
-                    str(test_path),
+                result = analyze_correlation_on_dataframe(
+                    combined_df,
                     threshold=threshold,
                     return_pairs=True
                 )
                 correlated_features, high_corr_pairs = result
             else:
-                correlated_features = analyze_combined_datasets(
-                    str(train_path),
-                    str(val_path),
-                    str(test_path),
-                    threshold=threshold
+                correlated_features = analyze_correlation_on_dataframe(
+                    combined_df,
+                    threshold=threshold,
+                    return_pairs=False
                 )
                 high_corr_pairs = []
-        else:
-            # Анализ только на train
-            logger.info("   ⚠️  Val/Test не найдены, анализируем только train")
+        
+        # Иначе используем пути к файлам (старый режим для обратной совместимости)
+        elif train_path is not None and val_path is not None and test_path is not None:
+            if val_path.exists() and test_path.exists():
+                # Анализ на объединенном датасете (загружает данные)
+                if save_details:
+                    result = analyze_combined_datasets(
+                        str(train_path),
+                        str(val_path),
+                        str(test_path),
+                        threshold=threshold,
+                        return_pairs=True
+                    )
+                    correlated_features, high_corr_pairs = result
+                else:
+                    correlated_features = analyze_combined_datasets(
+                        str(train_path),
+                        str(val_path),
+                        str(test_path),
+                        threshold=threshold
+                    )
+                    high_corr_pairs = []
+            else:
+                # Анализ только на train
+                logger.info("   ⚠️  Val/Test не найдены, анализируем только train")
+                if train_df is None:
+                    train_df = pd.read_csv(train_path, index_col=0, parse_dates=True)
+                
+                exclude_patterns_set = {'future_return', 'signal_class', 'signal_class_name', 'max_future_return'}
+                feature_columns = [
+                    col for col in train_df.columns 
+                    if col not in exclude_patterns_set
+                    and pd.api.types.is_numeric_dtype(train_df[col])
+                ]
+                
+                # Заполняем NaN
+                train_df_clean = train_df[feature_columns].fillna(train_df[feature_columns].median())
+                
+                high_corr_pairs = find_highly_correlated_pairs(
+                    train_df_clean, 
+                    feature_columns, 
+                    threshold
+                )
+                
+                if high_corr_pairs:
+                    correlated_features = select_features_to_remove(high_corr_pairs, feature_columns)
+                else:
+                    correlated_features = set()
+        
+        # Если передан только train_df (без combined_df и без путей)
+        elif train_df is not None:
+            logger.info("   ⚠️  Анализируем только train (val/test не предоставлены)")
             exclude_patterns_set = {'future_return', 'signal_class', 'signal_class_name', 'max_future_return'}
             feature_columns = [
                 col for col in train_df.columns 
@@ -1023,6 +1151,9 @@ def perform_correlation_analysis(train_df: pd.DataFrame, val_df: pd.DataFrame, t
                 correlated_features = select_features_to_remove(high_corr_pairs, feature_columns)
             else:
                 correlated_features = set()
+        else:
+            logger.error("   ❌ Ошибка: Не предоставлены ни combined_df, ни пути к файлам")
+            return set(), []
         
         logger.info(f"   ✓ Найдено {len(correlated_features)} высококоррелированных фичей")
         
@@ -1407,11 +1538,12 @@ def main():
     if data_leakage:
         logger.info(f"   Примеры: {', '.join(data_leakage[:5])}")
     
-    # 2. Анализ корреляции
+    # 2. Анализ корреляции (передаем уже загруженные данные для оптимизации)
     correlated_features, high_corr_pairs = perform_correlation_analysis(
-        train_df, val_df, test_df,
-        train_path, val_path, test_path,
-        args.correlation_threshold, args.save_details
+        train_df=train_df, val_df=val_df, test_df=test_df,
+        train_path=train_path, val_path=val_path, test_path=test_path,
+        combined_df=combined_df,
+        threshold=args.correlation_threshold, save_details=args.save_details
     )
     features_by_reason['high_correlation'] = list(correlated_features)
     

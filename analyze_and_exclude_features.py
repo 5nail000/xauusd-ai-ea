@@ -36,6 +36,11 @@ logger = logging.getLogger(__name__)
 # Защищенные фичи - никогда не удаляются
 PROTECTED_FEATURES = ['open', 'high', 'low', 'close']
 
+# Константы
+SHAPIRO_WILK_MAX_SAMPLE = 5000
+DEFAULT_CORRELATION_THRESHOLD = 0.95
+DEFAULT_MISSING_THRESHOLD = 90.0
+
 
 # ============================================================================
 # ФУНКЦИИ ИЗ analyze_feature_correlation.py
@@ -58,17 +63,19 @@ def find_highly_correlated_pairs(df: pd.DataFrame,
     # Вычисляем корреляционную матрицу
     corr_matrix = df[feature_columns].corr()
     
-    # Находим высококоррелированные пары
-    high_corr_pairs = []
-    for i in range(len(corr_matrix.columns)):
-        for j in range(i+1, len(corr_matrix.columns)):
-            corr_value = corr_matrix.iloc[i, j]
-            if abs(corr_value) > threshold:
-                high_corr_pairs.append((
-                    corr_matrix.columns[i],
-                    corr_matrix.columns[j],
-                    corr_value
-                ))
+    # Используем numpy для эффективного поиска верхнего треугольника
+    # (исключаем диагональ и дубликаты)
+    mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+    high_corr = corr_matrix.where(mask).stack()
+    
+    # Фильтруем по порогу
+    high_corr = high_corr[high_corr.abs() > threshold]
+    
+    # Преобразуем в список кортежей
+    high_corr_pairs = [
+        (idx[0], idx[1], float(val))
+        for idx, val in high_corr.items()
+    ]
     
     # Сортируем по абсолютному значению корреляции
     high_corr_pairs.sort(key=lambda x: abs(x[2]), reverse=True)
@@ -267,10 +274,10 @@ def analyze_combined_datasets(train_path: str, val_path: str, test_path: str,
     logger.info(f"   Объединенный датасет: {len(combined_df)} строк, {len(combined_df.columns)} колонок")
     
     # Выбор фичей (исключаем целевые переменные)
-    exclude_patterns = ['future_return', 'signal_class', 'signal_class_name', 'max_future_return']
+    exclude_patterns_set = {'future_return', 'signal_class', 'signal_class_name', 'max_future_return'}
     feature_columns = [
         col for col in combined_df.columns 
-        if not any(pattern in col for pattern in exclude_patterns)
+        if col not in exclude_patterns_set
         and pd.api.types.is_numeric_dtype(combined_df[col])
     ]
     
@@ -280,6 +287,14 @@ def analyze_combined_datasets(train_path: str, val_path: str, test_path: str,
     logger.info("\nПроверка данных...")
     nan_counts = combined_df[feature_columns].isna().sum()
     cols_with_nan = nan_counts[nan_counts > 0]
+    
+    # Исключаем фичи с >50% пропусков из корреляционного анализа
+    high_missing_threshold = len(combined_df) * 0.5
+    high_missing_cols = nan_counts[nan_counts > high_missing_threshold].index.tolist()
+    if high_missing_cols:
+        logger.info(f"   ⚠️  {len(high_missing_cols)} фичей с >50% пропусков исключены из корреляционного анализа")
+        feature_columns = [col for col in feature_columns if col not in high_missing_cols]
+    
     if len(cols_with_nan) > 0:
         logger.info(f"   ⚠️  Найдено {len(cols_with_nan)} фичей с NaN значениями")
         logger.info(f"   Заполняем NaN медианой...")
@@ -332,77 +347,69 @@ def compute_basic_statistics(df: pd.DataFrame, feature_columns: List[str]) -> pd
     """
     stats_list = []
     
-    for col in feature_columns:
-        if col not in df.columns:
+    # Фильтруем только существующие числовые фичи
+    numeric_features = [
+        col for col in feature_columns 
+        if col in df.columns and pd.api.types.is_numeric_dtype(df[col])
+    ]
+    
+    total_rows = len(df)
+    
+    for col in numeric_features:
+        col_data = df[col]
+        non_null = col_data.dropna()
+        
+        if len(non_null) == 0:
             continue
-            
-        col_data = df[col].dropna()
         
-        if len(col_data) == 0:
-            continue
+        # Вычисляем missing один раз
+        missing_count = col_data.isna().sum()
+        missing_pct = (missing_count / total_rows) * 100 if total_rows > 0 else 0
         
-        # Проверяем, является ли колонка числовой
-        is_numeric = pd.api.types.is_numeric_dtype(col_data)
-        
-        # Вычисляем статистику для бесконечных значений только для числовых типов
-        if is_numeric:
-            try:
-                infinite_count = np.isinf(col_data).sum()
-            except (TypeError, ValueError):
-                infinite_count = 0
-        else:
+        # Вычисляем бесконечные значения
+        try:
+            infinite_count = np.isinf(non_null).sum()
+        except (TypeError, ValueError):
             infinite_count = 0
+        
+        # Вычисляем нули
+        zeros_count = (non_null == 0).sum()
+        zeros_pct = (zeros_count / len(non_null)) * 100 if len(non_null) > 0 else 0
         
         stats_dict = {
             'feature': col,
-            'count': len(col_data),
-            'missing': df[col].isna().sum(),
-            'missing_pct': (df[col].isna().sum() / len(df)) * 100,
-            'zeros': (col_data == 0).sum() if is_numeric else 0,
-            'zeros_pct': ((col_data == 0).sum() / len(col_data)) * 100 if (len(col_data) > 0 and is_numeric) else 0,
+            'count': len(non_null),
+            'missing': missing_count,
+            'missing_pct': missing_pct,
+            'zeros': zeros_count,
+            'zeros_pct': zeros_pct,
             'infinite': infinite_count,
-            'infinite_pct': (infinite_count / len(col_data)) * 100 if len(col_data) > 0 else 0,
+            'infinite_pct': (infinite_count / len(non_null)) * 100 if len(non_null) > 0 else 0,
+            'mean': non_null.mean(),
+            'std': non_null.std(),
+            'min': non_null.min(),
+            'max': non_null.max(),
+            'median': non_null.median(),
+            'q25': non_null.quantile(0.25),
+            'q75': non_null.quantile(0.75),
+            'skewness': non_null.skew(),
+            'kurtosis': non_null.kurtosis(),
         }
         
-        if is_numeric:
-            stats_dict.update({
-                'mean': col_data.mean(),
-                'std': col_data.std(),
-                'min': col_data.min(),
-                'max': col_data.max(),
-                'median': col_data.median(),
-                'q25': col_data.quantile(0.25),
-                'q75': col_data.quantile(0.75),
-                'skewness': col_data.skew(),
-                'kurtosis': col_data.kurtosis(),
-            })
-            
-            # Проверка нормальности (Shapiro-Wilk для небольших выборок, иначе используем только skew/kurtosis)
-            if len(col_data) <= 5000 and stats is not None:
-                try:
-                    _, p_value = stats.shapiro(col_data.sample(min(5000, len(col_data))))
-                    stats_dict['normality_p_value'] = p_value
-                    stats_dict['is_normal'] = p_value > 0.05
-                except:
-                    stats_dict['normality_p_value'] = None
-                    stats_dict['is_normal'] = None
-            else:
+        # Проверка нормальности (Shapiro-Wilk для небольших выборок)
+        if len(non_null) <= SHAPIRO_WILK_MAX_SAMPLE and stats is not None:
+            try:
+                sample_size = min(SHAPIRO_WILK_MAX_SAMPLE, len(non_null))
+                _, p_value = stats.shapiro(non_null.sample(sample_size, random_state=42))
+                stats_dict['normality_p_value'] = p_value
+                stats_dict['is_normal'] = p_value > 0.05
+            except (ValueError, TypeError, RuntimeError) as e:
+                logger.debug(f"Ошибка при проверке нормальности для {col}: {e}")
                 stats_dict['normality_p_value'] = None
                 stats_dict['is_normal'] = None
         else:
-            stats_dict.update({
-                'mean': None,
-                'std': None,
-                'min': None,
-                'max': None,
-                'median': None,
-                'q25': None,
-                'q75': None,
-                'skewness': None,
-                'kurtosis': None,
-                'normality_p_value': None,
-                'is_normal': None,
-            })
+            stats_dict['normality_p_value'] = None
+            stats_dict['is_normal'] = None
         
         stats_list.append(stats_dict)
     
@@ -433,7 +440,8 @@ def analyze_feature_importance(df: pd.DataFrame, feature_columns: List[str],
     if mutual_info_classif is not None:
         try:
             mi_scores = mutual_info_classif(X, y, random_state=42, n_neighbors=3)
-        except:
+        except (ValueError, TypeError, RuntimeError) as e:
+            logger.debug(f"Ошибка при вычислении Mutual Information: {e}")
             pass
     
     # ANOVA F-score
@@ -442,7 +450,8 @@ def analyze_feature_importance(df: pd.DataFrame, feature_columns: List[str],
     if f_classif is not None:
         try:
             f_scores, f_pvalues = f_classif(X, y)
-        except:
+        except (ValueError, TypeError, RuntimeError) as e:
+            logger.debug(f"Ошибка при вычислении F-score: {e}")
             pass
     
     # Корреляция с таргетом (для числовых фичей)
@@ -455,7 +464,8 @@ def analyze_feature_importance(df: pd.DataFrame, feature_columns: List[str],
             try:
                 corr = df[[col, target_column]].corr().iloc[0, 1]
                 corr_with_target = corr if not np.isnan(corr) else None
-            except:
+            except (ValueError, TypeError, KeyError, IndexError) as e:
+                logger.debug(f"Ошибка при вычислении корреляции с таргетом для {col}: {e}")
                 pass
         
         importance_list.append({
@@ -536,7 +546,8 @@ def analyze_outliers(df: pd.DataFrame, feature_columns: List[str]) -> pd.DataFra
                 z_scores = np.abs(stats.zscore(col_data))
                 zscore_outliers = (z_scores > 3).sum()
                 zscore_outliers_pct = (zscore_outliers / len(col_data)) * 100
-            except:
+            except (ValueError, TypeError, RuntimeError) as e:
+                logger.debug(f"Ошибка при вычислении Z-score для {col}: {e}")
                 pass
         
         outliers_list.append({
@@ -888,6 +899,308 @@ def group_features_by_reason(features_by_reason: Dict[str, List[str]]) -> Dict[s
     return grouped
 
 
+def load_and_combine_datasets(train_path: Path, val_path: Path, test_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Загружает и объединяет датасеты
+    
+    Args:
+        train_path: Путь к train CSV
+        val_path: Путь к val CSV
+        test_path: Путь к test CSV
+    
+    Returns:
+        Кортеж (train_df, val_df, test_df, combined_df)
+    """
+    logger.info("\n1. Загрузка данных...")
+    train_df = pd.read_csv(train_path, index_col=0, parse_dates=True)
+    logger.info(f"   Train: {len(train_df)} образцов, {len(train_df.columns)} колонок")
+    
+    val_df = None
+    if val_path.exists():
+        val_df = pd.read_csv(val_path, index_col=0, parse_dates=True)
+        logger.info(f"   Val: {len(val_df)} образцов, {len(val_df.columns)} колонок")
+    
+    test_df = None
+    if test_path.exists():
+        test_df = pd.read_csv(test_path, index_col=0, parse_dates=True)
+        logger.info(f"   Test: {len(test_df)} образцов, {len(test_df.columns)} колонок")
+    
+    # Объединяем для анализа (одно concat вместо множественных)
+    dfs_to_concat = [train_df]
+    if val_df is not None:
+        dfs_to_concat.append(val_df)
+    if test_df is not None:
+        dfs_to_concat.append(test_df)
+    combined_df = pd.concat(dfs_to_concat, ignore_index=False)
+    
+    logger.info(f"   Объединенный датасет: {len(combined_df)} образцов")
+    
+    return train_df, val_df, test_df, combined_df
+
+
+def get_feature_columns(combined_df: pd.DataFrame) -> List[str]:
+    """
+    Определяет список фичей для анализа (исключая целевые переменные)
+    
+    Args:
+        combined_df: Объединенный DataFrame
+    
+    Returns:
+        Список фичей для анализа
+    """
+    exclude_patterns_set = {'future_return', 'signal_class', 'signal_class_name', 'max_future_return'}
+    all_features = [
+        col for col in combined_df.columns 
+        if col not in exclude_patterns_set
+        and pd.api.types.is_numeric_dtype(combined_df[col])
+    ]
+    return all_features
+
+
+def perform_correlation_analysis(train_df: pd.DataFrame, val_df: pd.DataFrame, test_df: pd.DataFrame,
+                                train_path: Path, val_path: Path, test_path: Path,
+                                threshold: float, save_details: bool) -> Tuple[Set[str], List[Tuple[str, str, float]]]:
+    """
+    Выполняет анализ корреляции
+    
+    Args:
+        train_df: Train DataFrame
+        val_df: Val DataFrame (может быть None)
+        test_df: Test DataFrame (может быть None)
+        train_path: Путь к train CSV
+        val_path: Путь к val CSV
+        test_path: Путь к test CSV
+        threshold: Порог корреляции
+        save_details: Сохранять ли детальные результаты
+    
+    Returns:
+        Кортеж (correlated_features, high_corr_pairs)
+    """
+    logger.info(f"\n3. Анализ корреляции (порог: {threshold})...")
+    high_corr_pairs = []
+    correlated_features = set()
+    
+    try:
+        if val_path.exists() and test_path.exists():
+            # Анализ на объединенном датасете
+            if save_details:
+                result = analyze_combined_datasets(
+                    str(train_path),
+                    str(val_path),
+                    str(test_path),
+                    threshold=threshold,
+                    return_pairs=True
+                )
+                correlated_features, high_corr_pairs = result
+            else:
+                correlated_features = analyze_combined_datasets(
+                    str(train_path),
+                    str(val_path),
+                    str(test_path),
+                    threshold=threshold
+                )
+                high_corr_pairs = []
+        else:
+            # Анализ только на train
+            logger.info("   ⚠️  Val/Test не найдены, анализируем только train")
+            exclude_patterns_set = {'future_return', 'signal_class', 'signal_class_name', 'max_future_return'}
+            feature_columns = [
+                col for col in train_df.columns 
+                if col not in exclude_patterns_set
+                and pd.api.types.is_numeric_dtype(train_df[col])
+            ]
+            
+            # Заполняем NaN
+            train_df_clean = train_df[feature_columns].fillna(train_df[feature_columns].median())
+            
+            high_corr_pairs = find_highly_correlated_pairs(
+                train_df_clean, 
+                feature_columns, 
+                threshold
+            )
+            
+            if high_corr_pairs:
+                correlated_features = select_features_to_remove(high_corr_pairs, feature_columns)
+            else:
+                correlated_features = set()
+        
+        logger.info(f"   ✓ Найдено {len(correlated_features)} высококоррелированных фичей")
+        
+    except (NotImplementedError, ImportError) as e:
+        logger.warning(f"   ⚠️  Анализ корреляции недоступен: {e}")
+        correlated_features = set()
+        high_corr_pairs = []
+    except Exception as e:
+        logger.warning(f"   ⚠️  Ошибка при анализе корреляции: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+        correlated_features = set()
+        high_corr_pairs = []
+    
+    return correlated_features, high_corr_pairs
+
+
+def perform_comprehensive_analysis(combined_df: pd.DataFrame, train_df: pd.DataFrame,
+                                   all_features: List[str], target: str, args) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Выполняет комплексный анализ фичей
+    
+    Args:
+        combined_df: Объединенный DataFrame
+        train_df: Train DataFrame
+        all_features: Список фичей для анализа
+        target: Название целевой переменной
+        args: Аргументы командной строки
+    
+    Returns:
+        Кортеж (stats_df, importance_df, outliers_df, class_stats_df)
+    """
+    logger.info("\n4. Комплексный анализ фичей...")
+    
+    stats_df = None
+    importance_df = None
+    outliers_df = None
+    class_stats_df = None
+    
+    # Базовая статистика
+    logger.info("   4.1. Вычисление базовой статистики...")
+    try:
+        stats_df = compute_basic_statistics(combined_df, all_features)
+        
+        # Фичи с 100% нулей
+        logger.info("   4.2. Поиск фичей с 100% нулей...")
+        zero_features = find_zero_features(stats_df)
+        logger.info(f"      ✓ Найдено {len(zero_features)} фичей с 100% нулей")
+        
+        # Фичи с большим процентом пропусков
+        logger.info(f"   4.3. Поиск фичей с >{args.missing_threshold}% пропусков...")
+        missing_features = find_high_missing_features(stats_df, args.missing_threshold)
+        logger.info(f"      ✓ Найдено {len(missing_features)} фичей с большим процентом пропусков")
+        
+        # Анализ выбросов (для детальных результатов)
+        if args.save_details:
+            logger.info("   4.4. Анализ выбросов...")
+            try:
+                outliers_df = analyze_outliers(combined_df, all_features)
+                logger.info(f"      ✓ Проанализировано {len(outliers_df)} фичей на выбросы")
+            except Exception as e:
+                logger.warning(f"      ⚠️  Ошибка при анализе выбросов: {e}")
+                outliers_df = None
+        
+    except (NotImplementedError, ImportError) as e:
+        logger.warning(f"   ⚠️  Комплексный анализ недоступен: {e}")
+    except Exception as e:
+        logger.warning(f"   ⚠️  Ошибка при вычислении статистики: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+    
+    # Анализ важности (если не отключен)
+    if not args.no_low_importance and args.low_importance_percentile > 0:
+        logger.info("   4.5. Анализ важности фичей...")
+        try:
+            if target in train_df.columns:
+                importance_df = analyze_feature_importance(
+                    train_df, 
+                    all_features, 
+                    target
+                )
+                
+                low_importance = find_low_importance_features(
+                    importance_df,
+                    args.low_importance_percentile
+                )
+                logger.info(f"      ✓ Найдено {len(low_importance)} фичей с низкой важностью")
+            else:
+                logger.warning(f"      ⚠️  Целевая переменная '{target}' не найдена, пропускаем анализ важности")
+        except (NotImplementedError, ImportError) as e:
+            logger.warning(f"      ⚠️  Анализ важности недоступен: {e}")
+        except Exception as e:
+            logger.warning(f"      ⚠️  Ошибка при анализе важности: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+    
+    # Анализ по классам (для детальных результатов)
+    if args.save_details and target in train_df.columns:
+        logger.info("   4.6. Анализ распределения фичей по классам...")
+        try:
+            class_stats_df = analyze_by_class(train_df, all_features, target)
+            logger.info(f"      ✓ Проанализировано {len(class_stats_df)} комбинаций фича-класс")
+        except Exception as e:
+            logger.warning(f"      ⚠️  Ошибка при анализе по классам: {e}")
+            class_stats_df = None
+    
+    return stats_df, importance_df, outliers_df, class_stats_df
+
+
+def save_detailed_results(high_corr_pairs: List[Tuple[str, str, float]],
+                         stats_df: pd.DataFrame, importance_df: pd.DataFrame,
+                         outliers_df: pd.DataFrame, class_stats_df: pd.DataFrame,
+                         correlation_threshold: float):
+    """
+    Сохраняет детальные результаты анализа
+    
+    Args:
+        high_corr_pairs: Список корреляционных пар
+        stats_df: DataFrame со статистикой
+        importance_df: DataFrame с важностью фичей
+        outliers_df: DataFrame с анализом выбросов
+        class_stats_df: DataFrame со статистикой по классам
+        correlation_threshold: Порог корреляции
+    """
+    logger.info("\n6. Сохранение детальных результатов анализа...")
+    output_dir = Path('workspace/analysis-of-features')
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Сохранение корреляционных пар
+    if high_corr_pairs:
+        logger.info("   6.1. Сохранение корреляционных пар...")
+        pairs_df = pd.DataFrame(high_corr_pairs, columns=['Feature_1', 'Feature_2', 'Correlation'])
+        pairs_df['Abs_Correlation'] = pairs_df['Correlation'].abs()
+        pairs_df = pairs_df.sort_values('Abs_Correlation', ascending=False)
+        pairs_path = output_dir / f'highly_correlated_pairs_threshold_{correlation_threshold:.2f}.csv'
+        pairs_df.to_csv(pairs_path, index=False)
+        logger.info(f"      ✓ Сохранено: {pairs_path}")
+    
+    # Сохранение статистики фичей
+    if stats_df is not None:
+        logger.info("   6.2. Сохранение базовой статистики...")
+        stats_path = output_dir / 'feature_statistics.csv'
+        stats_df.to_csv(stats_path, index=False)
+        logger.info(f"      ✓ Сохранено: {stats_path}")
+    
+    # Сохранение важности фичей
+    if importance_df is not None:
+        logger.info("   6.3. Сохранение важности фичей...")
+        importance_path = output_dir / 'feature_importance.csv'
+        importance_df.to_csv(importance_path, index=False)
+        logger.info(f"      ✓ Сохранено: {importance_path}")
+    
+    # Сохранение анализа выбросов
+    if outliers_df is not None:
+        logger.info("   6.4. Сохранение анализа выбросов...")
+        outliers_path = output_dir / 'outliers_analysis.csv'
+        outliers_df.to_csv(outliers_path, index=False)
+        logger.info(f"      ✓ Сохранено: {outliers_path}")
+    
+    # Сохранение статистики по классам
+    if class_stats_df is not None:
+        logger.info("   6.5. Сохранение статистики по классам...")
+        class_stats_path = output_dir / 'feature_by_class_statistics.csv'
+        class_stats_df.to_csv(class_stats_path, index=False)
+        logger.info(f"      ✓ Сохранено: {class_stats_path}")
+    
+    # Создание HTML отчета
+    logger.info("   6.6. Создание HTML отчета...")
+    html_path = output_dir / 'feature_analysis_report.html'
+    try:
+        create_html_report(stats_df, importance_df, outliers_df, class_stats_df, html_path)
+        logger.info(f"      ✓ Сохранено: {html_path}")
+    except Exception as e:
+        logger.warning(f"      ⚠️  Ошибка при создании HTML отчета: {e}")
+    
+    logger.info(f"\n   ✓ Все детальные результаты сохранены в: {output_dir}")
+
+
 def save_excluded_features_grouped(features_by_reason: Dict[str, List[str]],
                                    exclusions_file: Path = None,
                                    correlation_threshold: float = 0.95,
@@ -1076,38 +1389,11 @@ def main():
         logger.error("   Сначала запустите: python prepare_gold_data.py")
         return 1
     
-    # Загружаем данные
-    logger.info("\n1. Загрузка данных...")
-    train_df = pd.read_csv(train_path, index_col=0, parse_dates=True)
-    logger.info(f"   Train: {len(train_df)} образцов, {len(train_df.columns)} колонок")
-    
-    val_df = None
-    if val_path.exists():
-        val_df = pd.read_csv(val_path, index_col=0, parse_dates=True)
-        logger.info(f"   Val: {len(val_df)} образцов, {len(val_df.columns)} колонок")
-    
-    test_df = None
-    if test_path.exists():
-        test_df = pd.read_csv(test_path, index_col=0, parse_dates=True)
-        logger.info(f"   Test: {len(test_df)} образцов, {len(test_df.columns)} колонок")
-    
-    # Объединяем для анализа
-    combined_df = train_df.copy()
-    if val_df is not None:
-        combined_df = pd.concat([combined_df, val_df])
-    if test_df is not None:
-        combined_df = pd.concat([combined_df, test_df])
-    
-    logger.info(f"   Объединенный датасет: {len(combined_df)} образцов")
+    # Загружаем и объединяем данные
+    train_df, val_df, test_df, combined_df = load_and_combine_datasets(train_path, val_path, test_path)
     
     # Определяем фичи
-    exclude_patterns = ['future_return', 'signal_class', 'signal_class_name', 'max_future_return']
-    all_features = [
-        col for col in combined_df.columns 
-        if not any(pattern in col for pattern in exclude_patterns)
-        and pd.api.types.is_numeric_dtype(combined_df[col])
-    ]
-    
+    all_features = get_feature_columns(combined_df)
     logger.info(f"   Всего фичей для анализа: {len(all_features)}")
     
     # Словарь для группировки фичей по причинам
@@ -1122,65 +1408,12 @@ def main():
         logger.info(f"   Примеры: {', '.join(data_leakage[:5])}")
     
     # 2. Анализ корреляции
-    logger.info(f"\n3. Анализ корреляции (порог: {args.correlation_threshold})...")
-    high_corr_pairs = []
-    correlated_features = set()
-    
-    try:
-        if val_path.exists() and test_path.exists():
-            # Анализ на объединенном датасете
-            if args.save_details:
-                # Если нужны детальные результаты, получаем также пары
-                result = analyze_combined_datasets(
-                    str(train_path),
-                    str(val_path),
-                    str(test_path),
-                    threshold=args.correlation_threshold,
-                    return_pairs=True
-                )
-                correlated_features, high_corr_pairs = result
-            else:
-                correlated_features = analyze_combined_datasets(
-                    str(train_path),
-                    str(val_path),
-                    str(test_path),
-                    threshold=args.correlation_threshold
-                )
-                high_corr_pairs = []
-        else:
-            # Анализ только на train
-            logger.info("   ⚠️  Val/Test не найдены, анализируем только train")
-            feature_columns = [
-                col for col in train_df.columns 
-                if not any(pattern in col for pattern in exclude_patterns)
-                and pd.api.types.is_numeric_dtype(train_df[col])
-            ]
-            
-            # Заполняем NaN
-            train_df_clean = train_df[feature_columns].fillna(train_df[feature_columns].median())
-            
-            high_corr_pairs = find_highly_correlated_pairs(
-                train_df_clean, 
-                feature_columns, 
-                args.correlation_threshold
-            )
-            
-            if high_corr_pairs:
-                correlated_features = select_features_to_remove(high_corr_pairs, feature_columns)
-            else:
-                correlated_features = set()
-        
-        features_by_reason['high_correlation'] = list(correlated_features)
-        logger.info(f"   ✓ Найдено {len(correlated_features)} высококоррелированных фичей")
-        
-    except (NotImplementedError, ImportError) as e:
-        logger.warning(f"   ⚠️  Анализ корреляции недоступен: {e}")
-        features_by_reason['high_correlation'] = []
-    except Exception as e:
-        logger.warning(f"   ⚠️  Ошибка при анализе корреляции: {e}")
-        import traceback
-        logger.debug(traceback.format_exc())
-        features_by_reason['high_correlation'] = []
+    correlated_features, high_corr_pairs = perform_correlation_analysis(
+        train_df, val_df, test_df,
+        train_path, val_path, test_path,
+        args.correlation_threshold, args.save_details
+    )
+    features_by_reason['high_correlation'] = list(correlated_features)
     
     # 3. Комплексный анализ (если не только корреляция)
     stats_df = None
@@ -1189,90 +1422,29 @@ def main():
     class_stats_df = None
     
     if not args.only_correlation:
-        logger.info("\n4. Комплексный анализ фичей...")
+        stats_df, importance_df, outliers_df, class_stats_df = perform_comprehensive_analysis(
+            combined_df, train_df, all_features, args.target, args
+        )
         
-        # Базовая статистика
-        logger.info("   4.1. Вычисление базовой статистики...")
-        try:
-            stats_df = compute_basic_statistics(combined_df, all_features)
-            
-            # Фичи с 100% нулей
-            logger.info("   4.2. Поиск фичей с 100% нулей...")
+        # Добавляем найденные фичи в features_by_reason
+        if stats_df is not None:
             zero_features = find_zero_features(stats_df)
             features_by_reason['all_zeros'] = zero_features
-            logger.info(f"      ✓ Найдено {len(zero_features)} фичей с 100% нулей")
             
-            # Фичи с большим процентом пропусков
-            logger.info(f"   4.3. Поиск фичей с >{args.missing_threshold}% пропусков...")
             missing_features = find_high_missing_features(stats_df, args.missing_threshold)
             features_by_reason['high_missing'] = missing_features
-            logger.info(f"      ✓ Найдено {len(missing_features)} фичей с большим процентом пропусков")
-            
-            # Анализ выбросов (для детальных результатов)
-            if args.save_details:
-                logger.info("   4.4. Анализ выбросов...")
-                try:
-                    outliers_df = analyze_outliers(combined_df, all_features)
-                    logger.info(f"      ✓ Проанализировано {len(outliers_df)} фичей на выбросы")
-                except Exception as e:
-                    logger.warning(f"      ⚠️  Ошибка при анализе выбросов: {e}")
-                    outliers_df = None
-            
-        except (NotImplementedError, ImportError) as e:
-            logger.warning(f"   ⚠️  Комплексный анализ недоступен: {e}")
-            features_by_reason['all_zeros'] = []
-            features_by_reason['high_missing'] = []
-        except Exception as e:
-            logger.warning(f"   ⚠️  Ошибка при вычислении статистики: {e}")
-            import traceback
-            logger.debug(traceback.format_exc())
-            features_by_reason['all_zeros'] = []
-            features_by_reason['high_missing'] = []
         
-        # Анализ важности (если не отключен)
-        if not args.no_low_importance and args.low_importance_percentile > 0:
-            logger.info("   4.5. Анализ важности фичей...")
-            try:
-                if args.target in train_df.columns:
-                    importance_df = analyze_feature_importance(
-                        train_df, 
-                        all_features, 
-                        args.target
-                    )
-                    
-                    low_importance = find_low_importance_features(
-                        importance_df,
-                        args.low_importance_percentile
-                    )
-                    features_by_reason['low_importance'] = low_importance
-                    logger.info(f"      ✓ Найдено {len(low_importance)} фичей с низкой важностью")
-                else:
-                    logger.warning(f"      ⚠️  Целевая переменная '{args.target}' не найдена, пропускаем анализ важности")
-                    features_by_reason['low_importance'] = []
-            except (NotImplementedError, ImportError) as e:
-                logger.warning(f"      ⚠️  Анализ важности недоступен: {e}")
-                features_by_reason['low_importance'] = []
-            except Exception as e:
-                logger.warning(f"      ⚠️  Ошибка при анализе важности: {e}")
-                import traceback
-                logger.debug(traceback.format_exc())
-                features_by_reason['low_importance'] = []
+        if importance_df is not None and not args.no_low_importance and args.low_importance_percentile > 0:
+            low_importance = find_low_importance_features(
+                importance_df,
+                args.low_importance_percentile
+            )
+            features_by_reason['low_importance'] = low_importance
         else:
             features_by_reason['low_importance'] = []
-        
-        # Анализ по классам (для детальных результатов)
-        if args.save_details and args.target in train_df.columns:
-            logger.info("   4.6. Анализ распределения фичей по классам...")
-            try:
-                class_stats_df = analyze_by_class(train_df, all_features, args.target)
-                logger.info(f"      ✓ Проанализировано {len(class_stats_df)} комбинаций фича-класс")
-            except Exception as e:
-                logger.warning(f"      ⚠️  Ошибка при анализе по классам: {e}")
-                class_stats_df = None
     
-    # 5. Сохранение списка исключений
+    # 4. Сохранение списка исключений
     logger.info("\n5. Формирование и сохранение списка исключений...")
-    
     output_path = Path(args.output)
     save_excluded_features_grouped(
         features_by_reason,
@@ -1282,60 +1454,12 @@ def main():
         low_importance_percentile=args.low_importance_percentile if not args.no_low_importance else 0
     )
     
-    # 6. Сохранение детальных результатов (если запрошено)
+    # 5. Сохранение детальных результатов (если запрошено)
     if args.save_details:
-        logger.info("\n6. Сохранение детальных результатов анализа...")
-        output_dir = Path('workspace/analysis-of-features')
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Сохранение корреляционных пар
-        if high_corr_pairs:
-            logger.info("   6.1. Сохранение корреляционных пар...")
-            pairs_df = pd.DataFrame(high_corr_pairs, columns=['Feature_1', 'Feature_2', 'Correlation'])
-            pairs_df['Abs_Correlation'] = pairs_df['Correlation'].abs()
-            pairs_df = pairs_df.sort_values('Abs_Correlation', ascending=False)
-            pairs_path = output_dir / f'highly_correlated_pairs_threshold_{args.correlation_threshold:.2f}.csv'
-            pairs_df.to_csv(pairs_path, index=False)
-            logger.info(f"      ✓ Сохранено: {pairs_path}")
-        
-        # Сохранение статистики фичей
-        if stats_df is not None:
-            logger.info("   6.2. Сохранение базовой статистики...")
-            stats_path = output_dir / 'feature_statistics.csv'
-            stats_df.to_csv(stats_path, index=False)
-            logger.info(f"      ✓ Сохранено: {stats_path}")
-        
-        # Сохранение важности фичей
-        if importance_df is not None:
-            logger.info("   6.3. Сохранение важности фичей...")
-            importance_path = output_dir / 'feature_importance.csv'
-            importance_df.to_csv(importance_path, index=False)
-            logger.info(f"      ✓ Сохранено: {importance_path}")
-        
-        # Сохранение анализа выбросов
-        if outliers_df is not None:
-            logger.info("   6.4. Сохранение анализа выбросов...")
-            outliers_path = output_dir / 'outliers_analysis.csv'
-            outliers_df.to_csv(outliers_path, index=False)
-            logger.info(f"      ✓ Сохранено: {outliers_path}")
-        
-        # Сохранение статистики по классам
-        if class_stats_df is not None:
-            logger.info("   6.5. Сохранение статистики по классам...")
-            class_stats_path = output_dir / 'feature_by_class_statistics.csv'
-            class_stats_df.to_csv(class_stats_path, index=False)
-            logger.info(f"      ✓ Сохранено: {class_stats_path}")
-        
-        # Создание HTML отчета
-        logger.info("   6.6. Создание HTML отчета...")
-        html_path = output_dir / 'feature_analysis_report.html'
-        try:
-            create_html_report(stats_df, importance_df, outliers_df, class_stats_df, html_path)
-            logger.info(f"      ✓ Сохранено: {html_path}")
-        except Exception as e:
-            logger.warning(f"      ⚠️  Ошибка при создании HTML отчета: {e}")
-        
-        logger.info(f"\n   ✓ Все детальные результаты сохранены в: {output_dir}")
+        save_detailed_results(
+            high_corr_pairs, stats_df, importance_df, outliers_df, class_stats_df,
+            args.correlation_threshold
+        )
     
     # Итоговая статистика
     logger.info("\n" + "=" * 80)

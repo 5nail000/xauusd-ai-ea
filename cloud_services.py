@@ -700,6 +700,276 @@ class HuggingFaceUploader:
     upload_training_data = upload_hf_training_data
 
 
+class HuggingFaceDeleter:
+    """Класс для удаления данных из Hugging Face Hub"""
+    
+    def __init__(self, repo_id: str, token: Optional[str] = None):
+        """
+        Args:
+            repo_id: ID репозитория на Hugging Face (например, 'username/dataset-name')
+            token: Hugging Face токен (если None, используется из переменной окружения HF_TOKEN)
+        """
+        if not HF_AVAILABLE:
+            raise ImportError("huggingface_hub не установлен. Установите: pip install huggingface_hub")
+        
+        self.repo_id = repo_id
+        self.api = HfApi(token=token)
+        self.token = token or os.getenv('HF_TOKEN')
+        
+        if not self.token:
+            print("⚠️  Предупреждение: HF_TOKEN не установлен. Может потребоваться авторизация.")
+    
+    def _list_repo_files(self) -> List[str]:
+        """Получает список всех файлов в репозитории"""
+        try:
+            files = self.api.list_repo_files(
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                token=self.token
+            )
+            return files
+        except Exception as e:
+            print(f"❌ Ошибка при получении списка файлов: {e}")
+            return []
+    
+    def delete_hf_ticks(self, commit_message: str = "Delete tick data") -> bool:
+        """
+        Удаляет тиковые данные из репозитория
+        
+        Args:
+            commit_message: Сообщение коммита
+        """
+        print("=" * 60)
+        print("Удаление тиковых данных из Hugging Face")
+        print("=" * 60)
+        print(f"📁 Репозиторий: {self.repo_id}")
+        
+        try:
+            files = self._list_repo_files()
+            tick_files = [f for f in files if f.startswith('ticks/')]
+            
+            if not tick_files:
+                print("✓ Тиковые данные не найдены в репозитории")
+                return True
+            
+            print(f"\nНайдено {len(tick_files)} файлов/директорий для удаления:")
+            for file in tick_files[:10]:  # Показываем первые 10
+                print(f"  - {file}")
+            if len(tick_files) > 10:
+                print(f"  ... и еще {len(tick_files) - 10} файлов")
+            
+            # Удаляем файлы
+            print(f"\nУдаление файлов...")
+            for file in tick_files:
+                try:
+                    self.api.delete_file(
+                        path_in_repo=file,
+                        repo_id=self.repo_id,
+                        repo_type="dataset",
+                        token=self.token,
+                        commit_message=commit_message if file == tick_files[0] else None
+                    )
+                except Exception as e:
+                    print(f"  ⚠️  Ошибка при удалении {file}: {e}")
+            
+            print(f"\n✓ Тиковые данные успешно удалены из репозитория!")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при удалении: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def delete_hf_training_data(self, 
+                               include_scalers: bool = True,
+                               include_cache: bool = True,
+                               commit_message: str = "Delete training data") -> bool:
+        """
+        Удаляет данные для обучения из репозитория
+        
+        Args:
+            include_scalers: Удалять ли scalers
+            include_cache: Удалять ли кэши
+            commit_message: Сообщение коммита
+        """
+        print("=" * 60)
+        print("Удаление данных для обучения из Hugging Face")
+        print("=" * 60)
+        print(f"📁 Репозиторий: {self.repo_id}")
+        
+        try:
+            files = self._list_repo_files()
+            files_to_delete = []
+            
+            # CSV файлы для обучения
+            training_patterns = [
+                'workspace/prepared/features/gold_train.csv',
+                'workspace/prepared/features/gold_val.csv',
+                'workspace/prepared/features/gold_test.csv'
+            ]
+            
+            # Scalers
+            if include_scalers:
+                scaler_files = [f for f in files if f.startswith('workspace/prepared/scalers/')]
+                files_to_delete.extend(scaler_files)
+            
+            # Кэши
+            if include_cache:
+                cache_files = [f for f in files if f.startswith('workspace/raw_data/cache/')]
+                files_to_delete.extend(cache_files)
+            
+            # CSV файлы
+            for pattern in training_patterns:
+                if pattern in files:
+                    files_to_delete.append(pattern)
+            
+            # excluded_features.txt
+            excluded_file = 'workspace/excluded_features.txt'
+            if excluded_file in files:
+                files_to_delete.append(excluded_file)
+            
+            if not files_to_delete:
+                print("✓ Данные для обучения не найдены в репозитории")
+                return True
+            
+            print(f"\nНайдено {len(files_to_delete)} файлов/директорий для удаления:")
+            for file in files_to_delete[:10]:  # Показываем первые 10
+                print(f"  - {file}")
+            if len(files_to_delete) > 10:
+                print(f"  ... и еще {len(files_to_delete) - 10} файлов")
+            
+            # Удаляем файлы
+            print(f"\nУдаление файлов...")
+            for i, file in enumerate(files_to_delete):
+                try:
+                    self.api.delete_file(
+                        path_in_repo=file,
+                        repo_id=self.repo_id,
+                        repo_type="dataset",
+                        token=self.token,
+                        commit_message=commit_message if i == 0 else None
+                    )
+                except Exception as e:
+                    print(f"  ⚠️  Ошибка при удалении {file}: {e}")
+            
+            print(f"\n✓ Данные для обучения успешно удалены из репозитория!")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при удалении: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def delete_hf_feature_analysis(self, commit_message: str = "Delete feature analysis results") -> bool:
+        """
+        Удаляет результаты анализа фичей из репозитория
+        
+        Args:
+            commit_message: Сообщение коммита
+        """
+        print("=" * 60)
+        print("Удаление результатов анализа фичей из Hugging Face")
+        print("=" * 60)
+        print(f"📁 Репозиторий: {self.repo_id}")
+        
+        try:
+            files = self._list_repo_files()
+            analysis_files = [f for f in files if f.startswith('analysis-of-features/')]
+            
+            if not analysis_files:
+                print("✓ Результаты анализа фичей не найдены в репозитории")
+                return True
+            
+            print(f"\nНайдено {len(analysis_files)} файлов/директорий для удаления:")
+            for file in analysis_files[:10]:  # Показываем первые 10
+                print(f"  - {file}")
+            if len(analysis_files) > 10:
+                print(f"  ... и еще {len(analysis_files) - 10} файлов")
+            
+            # Удаляем файлы
+            print(f"\nУдаление файлов...")
+            for i, file in enumerate(analysis_files):
+                try:
+                    self.api.delete_file(
+                        path_in_repo=file,
+                        repo_id=self.repo_id,
+                        repo_type="dataset",
+                        token=self.token,
+                        commit_message=commit_message if i == 0 else None
+                    )
+                except Exception as e:
+                    print(f"  ⚠️  Ошибка при удалении {file}: {e}")
+            
+            print(f"\n✓ Результаты анализа фичей успешно удалены из репозитория!")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при удалении: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def delete_all_data(self, commit_message: str = "Delete all dataset data") -> bool:
+        """
+        Удаляет все данные из датасета (очищает репозиторий для новых загрузок)
+        
+        Args:
+            commit_message: Сообщение коммита
+        """
+        print("=" * 60)
+        print("Удаление всех данных из датасета Hugging Face")
+        print("=" * 60)
+        print(f"📁 Репозиторий: {self.repo_id}")
+        print("⚠️  ВНИМАНИЕ: Это удалит ВСЕ данные из репозитория!")
+        
+        try:
+            files = self._list_repo_files()
+            
+            if not files:
+                print("✓ Репозиторий уже пуст")
+                return True
+            
+            print(f"\nНайдено {len(files)} файлов/директорий для удаления:")
+            for file in files[:20]:  # Показываем первые 20
+                print(f"  - {file}")
+            if len(files) > 20:
+                print(f"  ... и еще {len(files) - 20} файлов")
+            
+            # Подтверждение
+            response = input("\nВы уверены, что хотите удалить ВСЕ данные? (yes/no): ").strip().lower()
+            if response != 'yes':
+                print("❌ Удаление отменено")
+                return False
+            
+            # Удаляем файлы
+            print(f"\nУдаление файлов...")
+            for i, file in enumerate(files):
+                try:
+                    self.api.delete_file(
+                        path_in_repo=file,
+                        repo_id=self.repo_id,
+                        repo_type="dataset",
+                        token=self.token,
+                        commit_message=commit_message if i == 0 else None
+                    )
+                    if (i + 1) % 10 == 0:
+                        print(f"  Удалено {i + 1}/{len(files)} файлов...")
+                except Exception as e:
+                    print(f"  ⚠️  Ошибка при удалении {file}: {e}")
+            
+            print(f"\n✓ Все данные успешно удалены из репозитория!")
+            print(f"  Репозиторий готов для новых загрузок")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка при удалении: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+
 class HuggingFaceDownloader:
     """Класс для скачивания данных с Hugging Face Hub"""
     
@@ -1118,6 +1388,34 @@ Hugging Face:
     hf_download_features_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
     hf_download_features_parser.add_argument('--local-dir', type=str, default='workspace/analysis-of-features', help='Локальная директория')
     
+    # Hugging Face: Delete ticks
+    hf_delete_ticks_parser = subparsers.add_parser('hf-delete-ticks', help='Удалить тики из Hugging Face датасета')
+    hf_delete_ticks_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_delete_ticks_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_delete_ticks_parser.add_argument('--commit-message', type=str, default='Delete tick data', help='Сообщение коммита')
+    
+    # Hugging Face: Delete training data
+    hf_delete_training_parser = subparsers.add_parser('hf-delete-training', help='Удалить данные для обучения из Hugging Face датасета')
+    hf_delete_training_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_delete_training_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_delete_training_parser.add_argument('--include-scalers', action='store_true', default=True, help='Удалять scalers (по умолчанию: да)')
+    hf_delete_training_parser.add_argument('--no-scalers', action='store_false', dest='include_scalers', help='Не удалять scalers')
+    hf_delete_training_parser.add_argument('--include-cache', action='store_true', default=True, help='Удалять кэши (по умолчанию: да)')
+    hf_delete_training_parser.add_argument('--no-cache', action='store_false', dest='include_cache', help='Не удалять кэши')
+    hf_delete_training_parser.add_argument('--commit-message', type=str, default='Delete training data', help='Сообщение коммита')
+    
+    # Hugging Face: Delete feature analysis
+    hf_delete_features_parser = subparsers.add_parser('hf-delete-features', help='Удалить результаты анализа фичей из Hugging Face датасета')
+    hf_delete_features_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_delete_features_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_delete_features_parser.add_argument('--commit-message', type=str, default='Delete feature analysis results', help='Сообщение коммита')
+    
+    # Hugging Face: Delete all data
+    hf_delete_all_parser = subparsers.add_parser('hf-delete-all', help='Удалить все данные из Hugging Face датасета (очистить для новых загрузок)')
+    hf_delete_all_parser.add_argument('--repo-id', type=str, required=True, help='ID репозитория (username/dataset-name)')
+    hf_delete_all_parser.add_argument('--token', type=str, default=None, help='Hugging Face токен (или HF_TOKEN env var)')
+    hf_delete_all_parser.add_argument('--commit-message', type=str, default='Delete all dataset data', help='Сообщение коммита')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -1202,6 +1500,40 @@ Hugging Face:
             return
         downloader = HuggingFaceDownloader(repo_id=args.repo_id, token=args.token)
         downloader.download_hf_feature_analysis(local_dir=args.local_dir)
+    
+    elif args.command == 'hf-delete-ticks':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        deleter = HuggingFaceDeleter(repo_id=args.repo_id, token=args.token)
+        deleter.delete_hf_ticks(commit_message=args.commit_message)
+    
+    elif args.command == 'hf-delete-training':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        deleter = HuggingFaceDeleter(repo_id=args.repo_id, token=args.token)
+        include_scalers = getattr(args, 'include_scalers', True)
+        include_cache = getattr(args, 'include_cache', True)
+        deleter.delete_hf_training_data(
+            include_scalers=include_scalers,
+            include_cache=include_cache,
+            commit_message=args.commit_message
+        )
+    
+    elif args.command == 'hf-delete-features':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        deleter = HuggingFaceDeleter(repo_id=args.repo_id, token=args.token)
+        deleter.delete_hf_feature_analysis(commit_message=args.commit_message)
+    
+    elif args.command == 'hf-delete-all':
+        if not HF_AVAILABLE:
+            print("❌ huggingface_hub не установлен. Установите: pip install huggingface_hub")
+            return
+        deleter = HuggingFaceDeleter(repo_id=args.repo_id, token=args.token)
+        deleter.delete_all_data(commit_message=args.commit_message)
     
     print("\n" + "=" * 60)
     print("Готово!")

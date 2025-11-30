@@ -1,11 +1,13 @@
 """
 Скрипт для экспорта документации по фичам
 Можно запустить отдельно для существующей модели
+Применяет список исключений из workspace/excluded_features.txt
 """
 import argparse
 import pickle
 from pathlib import Path
 from utils.feature_documentation import create_feature_documentation
+from utils.feature_exclusions import load_excluded_features
 
 def main():
     parser = argparse.ArgumentParser(
@@ -68,11 +70,30 @@ def main():
             print("❌ Ошибка: В scaler не найдены feature_columns")
             return 1
         
-        print(f"✓ Найдено {len(feature_columns)} фичей")
+        print(f"✓ Найдено {len(feature_columns)} фичей в scaler")
     
     except Exception as e:
         print(f"❌ Ошибка при загрузке scaler: {e}")
         return 1
+    
+    # Загружаем список исключенных фичей
+    print(f"\nЗагрузка списка исключений...")
+    excluded_features = load_excluded_features()
+    
+    if excluded_features:
+        print(f"✓ Загружено {len(excluded_features)} фичей для исключения")
+        # Фильтруем фичи, убирая исключенные
+        original_count = len(feature_columns)
+        feature_columns = [f for f in feature_columns if f not in excluded_features]
+        excluded_count = original_count - len(feature_columns)
+        
+        if excluded_count > 0:
+            print(f"✓ Исключено {excluded_count} фичей из списка")
+            print(f"✓ Актуальных фичей: {len(feature_columns)}")
+        else:
+            print(f"✓ Все фичи из scaler актуальны (нет совпадений с исключениями)")
+    else:
+        print(f"✓ Список исключений не найден или пуст, используются все фичи из scaler")
     
     # Определяем путь для сохранения
     if args.output:

@@ -4,7 +4,10 @@
 
 Модуль `cloud_services.py` предоставляет утилиты для работы с облачными сервисами:
 - **Paperspace** - для обучения моделей на мощных серверах
-- **Hugging Face Hub** - для хранения и обмена данными, моделями и результатами анализа
+- **Hugging Face Hub** - для хранения, обмена и управления данными, моделями и результатами анализа
+  - Загрузка данных (тики, данные для обучения, результаты анализа)
+  - Скачивание данных
+  - Удаление данных (отдельные группы или все данные)
 
 ## Установка зависимостей
 
@@ -440,6 +443,141 @@ python cloud_services.py hf-download-features \
 
 ---
 
+## Hugging Face: Удаление данных
+
+### 1. Удаление тиков
+
+Удаляет тиковые данные из репозитория (папка `ticks/`).
+
+```bash
+# Базовый вариант
+python cloud_services.py hf-delete-ticks \
+  --repo-id username/xauusd-ticks
+
+# С кастомным сообщением коммита
+python cloud_services.py hf-delete-ticks \
+  --repo-id username/xauusd-ticks \
+  --commit-message "Remove old tick data"
+```
+
+**Параметры:**
+- `--repo-id` - ID репозитория (обязательно)
+- `--token` - Hugging Face токен
+- `--commit-message` - сообщение коммита (по умолчанию: "Delete tick data")
+
+**Что удаляется:**
+- Все файлы и директории в папке `ticks/`
+
+### 2. Удаление данных для обучения
+
+Удаляет данные для обучения из репозитория.
+
+```bash
+# Удалить все данные для обучения (CSV, scalers, кэши)
+python cloud_services.py hf-delete-training \
+  --repo-id username/xauusd-training-data
+
+# Удалить только CSV файлы (без scalers)
+python cloud_services.py hf-delete-training \
+  --repo-id username/xauusd-training-data \
+  --no-scalers
+
+# Удалить только CSV файлы (без кэшей)
+python cloud_services.py hf-delete-training \
+  --repo-id username/xauusd-training-data \
+  --no-cache
+
+# Удалить только CSV файлы (без scalers и кэшей)
+python cloud_services.py hf-delete-training \
+  --repo-id username/xauusd-training-data \
+  --no-scalers \
+  --no-cache
+```
+
+**Параметры:**
+- `--repo-id` - ID репозитория (обязательно)
+- `--token` - Hugging Face токен
+- `--no-scalers` - не удалять scalers (по умолчанию удаляются)
+- `--no-cache` - не удалять кэши (по умолчанию удаляются)
+- `--commit-message` - сообщение коммита (по умолчанию: "Delete training data")
+
+**Что удаляется:**
+- `workspace/prepared/features/gold_train.csv`
+- `workspace/prepared/features/gold_val.csv`
+- `workspace/prepared/features/gold_test.csv`
+- `workspace/prepared/scalers/` (если не указан `--no-scalers`)
+- `workspace/raw_data/cache/` (если не указан `--no-cache`)
+- `workspace/excluded_features.txt`
+
+### 3. Удаление результатов анализа фичей
+
+Удаляет результаты анализа фичей из репозитория (папка `analysis-of-features/`).
+
+```bash
+# Базовый вариант
+python cloud_services.py hf-delete-features \
+  --repo-id username/xauusd-feature-analysis
+
+# С кастомным сообщением коммита
+python cloud_services.py hf-delete-features \
+  --repo-id username/xauusd-feature-analysis \
+  --commit-message "Remove old analysis results"
+```
+
+**Параметры:**
+- `--repo-id` - ID репозитория (обязательно)
+- `--token` - Hugging Face токен
+- `--commit-message` - сообщение коммита (по умолчанию: "Delete feature analysis results")
+
+**Что удаляется:**
+- Все файлы и директории в папке `analysis-of-features/`
+
+### 4. Удаление всех данных (очистка датасета)
+
+**⚠️ ВНИМАНИЕ:** Эта команда удаляет ВСЕ данные из репозитория. Используйте с осторожностью!
+
+Удаляет все данные из датасета, очищая репозиторий для новых загрузок.
+
+```bash
+# Удалить все данные (требует подтверждения)
+python cloud_services.py hf-delete-all \
+  --repo-id username/xauusd-dataset
+
+# С кастомным сообщением коммита
+python cloud_services.py hf-delete-all \
+  --repo-id username/xauusd-dataset \
+  --commit-message "Clear dataset for new uploads"
+```
+
+**Параметры:**
+- `--repo-id` - ID репозитория (обязательно)
+- `--token` - Hugging Face токен
+- `--commit-message` - сообщение коммита (по умолчанию: "Delete all dataset data")
+
+**Безопасность:**
+- Команда требует подтверждения: нужно ввести `yes` для продолжения
+- Показывает список всех файлов перед удалением
+- Показывает прогресс удаления
+
+**Что удаляется:**
+- Все файлы и директории в репозитории
+- Репозиторий остается пустым и готовым для новых загрузок
+
+**Пример использования:**
+
+```bash
+# 1. Очистить датасет от старых данных
+python cloud_services.py hf-delete-all \
+  --repo-id username/xauusd-dataset
+# Введите: yes
+
+# 2. Загрузить новые данные
+python cloud_services.py hf-upload-training \
+  --repo-id username/xauusd-dataset
+```
+
+---
+
 ## Типичные сценарии использования
 
 ### Сценарий 1: Обучение на Paperspace
@@ -507,6 +645,51 @@ python cloud_services.py hf-download-features \
 
 # 4. Открыть HTML отчет
 # workspace/analysis-of-features/feature_analysis_report.html
+```
+
+### Сценарий 4: Очистка и обновление данных на Hugging Face
+
+```bash
+# 1. Удалить старые данные для обучения
+python cloud_services.py hf-delete-training \
+  --repo-id username/xauusd-training-data
+
+# 2. Загрузить новые данные
+python cloud_services.py hf-upload-training \
+  --repo-id username/xauusd-training-data
+
+# Или полностью очистить датасет и загрузить все заново:
+# 1. Очистить все данные (требует подтверждения)
+python cloud_services.py hf-delete-all \
+  --repo-id username/xauusd-dataset
+# Введите: yes
+
+# 2. Загрузить новые данные
+python cloud_services.py hf-upload-ticks \
+  --repo-id username/xauusd-dataset
+
+python cloud_services.py hf-upload-training \
+  --repo-id username/xauusd-dataset
+
+python cloud_services.py hf-upload-features \
+  --repo-id username/xauusd-dataset
+```
+
+### Сценарий 5: Удаление отдельных групп данных
+
+```bash
+# Удалить только тики (оставить остальные данные)
+python cloud_services.py hf-delete-ticks \
+  --repo-id username/xauusd-dataset
+
+# Удалить только результаты анализа (оставить данные для обучения)
+python cloud_services.py hf-delete-features \
+  --repo-id username/xauusd-dataset
+
+# Удалить данные для обучения, но оставить scalers
+python cloud_services.py hf-delete-training \
+  --repo-id username/xauusd-dataset \
+  --no-scalers
 ```
 
 ---
@@ -608,7 +791,7 @@ downloader.list_paperspace_files()
 ### Hugging Face
 
 ```python
-from cloud_services import HuggingFaceUploader, HuggingFaceDownloader
+from cloud_services import HuggingFaceUploader, HuggingFaceDownloader, HuggingFaceDeleter
 
 # Загрузка данных
 uploader = HuggingFaceUploader(repo_id='username/dataset-name')
@@ -621,9 +804,185 @@ downloader = HuggingFaceDownloader(repo_id='username/dataset-name')
 downloader.download_hf_ticks(local_dir='workspace/raw_data/ticks')
 downloader.download_hf_training_data(local_dir='workspace')
 downloader.download_hf_feature_analysis(local_dir='workspace/analysis-of-features')
+
+# Удаление данных
+deleter = HuggingFaceDeleter(repo_id='username/dataset-name')
+deleter.delete_hf_ticks()  # Удалить тики
+deleter.delete_hf_training_data(include_scalers=True, include_cache=True)  # Удалить данные для обучения
+deleter.delete_hf_feature_analysis()  # Удалить результаты анализа
+deleter.delete_all_data()  # Удалить все данные (требует подтверждения)
 ```
 
 **Примечание:** Для обратной совместимости старые названия методов (без префиксов `paperspace_` и `hf_`) также доступны как алиасы, но рекомендуется использовать новые названия для ясности.
+
+---
+
+## Справочник всех команд и опций
+
+### Paperspace: Работа с данными для обучения
+
+#### `upload-training`
+Создает архив и загружает данные для обучения на Paperspace сервер.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--host` | str | Нет | `paperspace.com` | Хост Paperspace |
+| `--path` | str | Нет | `/storage/` | Путь на Paperspace |
+| `--user` | str | Нет | `None` | Пользователь для SSH |
+| `--method` | str | Нет | `scp` | Метод загрузки: `scp` или `rsync` |
+| `--include-ticks` | flag | Нет | `False` | Включить тиковые данные |
+| `--include-cache` | flag | Нет | `False` | Включить кэши |
+| `--no-ask-ticks` | flag | Нет | `False` | Не спрашивать подтверждение для тиков |
+
+#### `create-training-archive`
+Создает tar.gz архив с данными для обучения (без загрузки).
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--output`, `-o` | str | Нет | `training_data_YYYYMMDD_HHMMSS.tar.gz` | Путь к выходному архиву |
+| `--include-ticks` | flag | Нет | `False` | Включить тиковые данные |
+| `--include-cache` | flag | Нет | `False` | Включить кэши |
+| `--no-ask-ticks` | flag | Нет | `False` | Не спрашивать подтверждение для тиков |
+
+#### `download-results`
+Скачивает результаты обучения с Paperspace сервера.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--host` | str | Нет | `paperspace.com` | Хост Paperspace |
+| `--path` | str | **Да** | - | Путь к архиву на Paperspace |
+| `--user` | str | Нет | `None` | Пользователь для SSH |
+| `--method` | str | Нет | `scp` | Метод скачивания: `scp` или `rsync` |
+| `--local-path` | str | Нет | `.` | Локальная директория для сохранения |
+
+#### `create-results-archive`
+Создает tar.gz архив с результатами обучения.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--output`, `-o` | str | Нет | `results_YYYYMMDD_HHMMSS.tar.gz` | Путь к выходному архиву |
+
+#### `list-remote-files`
+Выводит список файлов на Paperspace сервере.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--host` | str | Нет | `paperspace.com` | Хост Paperspace |
+| `--path` | str | Нет | `/storage/` | Путь на Paperspace |
+| `--user` | str | Нет | `None` | Пользователь для SSH |
+
+---
+
+### Hugging Face: Загрузка данных
+
+#### `hf-upload-ticks`
+Загружает тиковые данные на Hugging Face Hub.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--ticks-dir` | str | Нет | `workspace/raw_data/ticks` | Директория с тиками |
+| `--commit-message` | str | Нет | `Upload tick data` | Сообщение коммита |
+
+#### `hf-upload-training`
+Загружает данные для обучения на Hugging Face Hub.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--include-scalers` | flag | Нет | `True` | Включить scalers |
+| `--no-scalers` | flag | Нет | - | Не включать scalers |
+| `--include-cache` | flag | Нет | `False` | Включить кэши |
+| `--commit-message` | str | Нет | `Upload training data` | Сообщение коммита |
+
+#### `hf-upload-features`
+Загружает результаты анализа фичей на Hugging Face Hub.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--analysis-dir` | str | Нет | `workspace/analysis-of-features` | Директория с результатами анализа |
+| `--commit-message` | str | Нет | `Upload feature analysis results` | Сообщение коммита |
+
+---
+
+### Hugging Face: Скачивание данных
+
+#### `hf-download-ticks`
+Скачивает тиковые данные с Hugging Face Hub.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--local-dir` | str | Нет | `workspace/raw_data/ticks` | Локальная директория для сохранения |
+
+#### `hf-download-training`
+Скачивает данные для обучения с Hugging Face Hub.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--local-dir` | str | Нет | `workspace` | Локальная директория для сохранения |
+
+#### `hf-download-features`
+Скачивает результаты анализа фичей с Hugging Face Hub.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--local-dir` | str | Нет | `workspace/analysis-of-features` | Локальная директория для сохранения |
+
+---
+
+### Hugging Face: Удаление данных
+
+#### `hf-delete-ticks`
+Удаляет тиковые данные из Hugging Face датасета.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--commit-message` | str | Нет | `Delete tick data` | Сообщение коммита |
+
+#### `hf-delete-training`
+Удаляет данные для обучения из Hugging Face датасета.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--include-scalers` | flag | Нет | `True` | Удалять scalers |
+| `--no-scalers` | flag | Нет | - | Не удалять scalers |
+| `--include-cache` | flag | Нет | `True` | Удалять кэши |
+| `--no-cache` | flag | Нет | - | Не удалять кэши |
+| `--commit-message` | str | Нет | `Delete training data` | Сообщение коммита |
+
+#### `hf-delete-features`
+Удаляет результаты анализа фичей из Hugging Face датасета.
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--commit-message` | str | Нет | `Delete feature analysis results` | Сообщение коммита |
+
+#### `hf-delete-all`
+**⚠️ ОПАСНО:** Удаляет все данные из Hugging Face датасета (требует подтверждения).
+
+| Опция | Тип | Обязательно | По умолчанию | Описание |
+|-------|-----|-------------|--------------|----------|
+| `--repo-id` | str | **Да** | - | ID репозитория (username/dataset-name) |
+| `--token` | str | Нет | `HF_TOKEN` env var | Hugging Face токен |
+| `--commit-message` | str | Нет | `Delete all dataset data` | Сообщение коммита |
+
+**Примечание:** Команда требует ввода `yes` для подтверждения удаления.
 
 ---
 

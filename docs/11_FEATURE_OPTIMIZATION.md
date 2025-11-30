@@ -32,6 +32,9 @@ python analyze_and_exclude_features.py --no-low-importance
 
 # Только анализ корреляции (быстрее)
 python analyze_and_exclude_features.py --only-correlation
+
+# С сохранением детальных результатов (CSV файлы и HTML отчет)
+python analyze_and_exclude_features.py --save-details
 ```
 
 **Что анализируется:**
@@ -99,6 +102,18 @@ is_weekend
 - `--low-importance-percentile` - процентиль для низкой важности (по умолчанию: 5.0, 0 = отключить)
 - `--no-low-importance` - не исключать фичи по низкой важности
 - `--only-correlation` - выполнить только анализ корреляции (быстрее)
+- `--save-details` - сохранить детальные результаты анализа в `workspace/analysis-of-features/` (CSV файлы и HTML отчет)
+
+**Детальные результаты (при использовании `--save-detailed-results`):**
+
+Все детальные результаты сохраняются в `workspace/analysis-of-features/`:
+
+- `highly_correlated_pairs_threshold_*.csv` - список высококоррелированных пар (Feature_1, Feature_2, Correlation)
+- `feature_statistics.csv` - базовая статистика по фичам (mean, std, missing, zeros, outliers и т.д.)
+- `feature_importance.csv` - важность фичей (Mutual Info, F-score, combined_score, correlation_with_target)
+- `outliers_analysis.csv` - анализ выбросов (IQR и Z-score методы)
+- `feature_by_class_statistics.csv` - статистика распределения фичей по классам
+- `feature_analysis_report.html` - сводный HTML отчет с топ-20 важными фичами и топ-10 фичами с выбросами
 - `--output` - путь для сохранения списка (по умолчанию: workspace/excluded_features.txt)
 
 **Рекомендуемый workflow:**
@@ -244,22 +259,21 @@ python analyze_and_exclude_features.py --no-low-importance
 
 ### Структура результатов
 
-Все результаты сохраняются в `workspace/analysis-of-features/`:
+**Основной результат (всегда сохраняется):**
+- `workspace/excluded_features.txt` - список фичей для исключения с группировкой по причинам
+
+**Детальные результаты (только при использовании `--save-details`):**
+
+Все детальные результаты сохраняются в `workspace/analysis-of-features/`:
 
 ```
 workspace/analysis-of-features/
-├── feature_statistics.csv              # Базовая статистика по фичам
-├── feature_importance.csv              # Важность фичей (Mutual Info, F-score)
-├── outliers_analysis.csv               # Анализ выбросов
-├── feature_by_class_statistics.csv     # Статистика по классам
-├── feature_analysis_report.html        # Сводный HTML отчет
-└── plots/                              # Графики (если --generate-plots)
-    ├── distributions/                  # Распределения фичей
-    │   ├── feature1_distribution.png
-    │   └── ...
-    └── by_class/                       # Распределения по классам
-        ├── feature1_by_class.png
-        └── ...
+├── highly_correlated_pairs_threshold_0.95.csv  # Список коррелированных пар
+├── feature_statistics.csv                      # Базовая статистика по фичам
+├── feature_importance.csv                      # Важность фичей (Mutual Info, F-score)
+├── outliers_analysis.csv                        # Анализ выбросов
+├── feature_by_class_statistics.csv             # Статистика по классам
+└── feature_analysis_report.html                # Сводный HTML отчет
 ```
 
 ### Интерпретация результатов

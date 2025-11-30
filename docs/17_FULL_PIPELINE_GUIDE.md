@@ -128,12 +128,25 @@ python analyze_and_exclude_features.py --correlation-threshold 0.90 --missing-th
 
 # Без исключения по низкой важности
 python analyze_and_exclude_features.py --no-low-importance
+
+# С сохранением детальных результатов (CSV файлы и HTML отчет)
+python analyze_and_exclude_features.py --save-details
 ```
 
 **Результаты:**
+
+**Основной результат (всегда сохраняется):**
 - `workspace/excluded_features.txt` - список фичей для исключения с группировкой по причинам
 - Фичи автоматически исключаются при создании DataLoader'ов (не удаляются из CSV файлов)
 - Группировка по причинам: Data Leakage → Высокая корреляция → 100% нулей → Большой % пропусков → Низкая важность
+
+**Детальные результаты (только при использовании `--save-detailed-analyze`):**
+- `workspace/analysis-of-features/highly_correlated_pairs_threshold_*.csv` - список коррелированных пар
+- `workspace/analysis-of-features/feature_statistics.csv` - базовая статистика
+- `workspace/analysis-of-features/feature_importance.csv` - важность фичей
+- `workspace/analysis-of-features/outliers_analysis.csv` - анализ выбросов
+- `workspace/analysis-of-features/feature_by_class_statistics.csv` - статистика по классам
+- `workspace/analysis-of-features/feature_analysis_report.html` - HTML отчет
 
 **Что анализируется:**
 1. **Data Leakage фичи** - фичи, содержащие информацию о будущем (высший приоритет)
@@ -404,6 +417,9 @@ python full_pipeline.py --months 12 --remove-correlated
 # С полным анализом фичей (включает все типы проверок)
 python full_pipeline.py --months 12 --analyze-features
 
+# С сохранением детальных результатов (CSV и HTML)
+python full_pipeline.py --months 12 --remove-correlated --save-detailed-analyze
+
 # С кастомными параметрами обучения
 python full_pipeline.py --months 6 --encoder-only --epochs 50 --batch-size 16
 ```
@@ -668,6 +684,7 @@ python cloud_services.py hf-download-training --repo-id username/dataset-name
 | `--correlation-threshold` | Порог корреляции | 0.95 |
 | `--analyze-features` | Комплексный анализ фичей | False |
 | `--generate-feature-plots` | [УСТАРЕЛО] Параметр больше не используется | False |
+| `--save-detailed-analyze` | Сохранить детальные результаты анализа в workspace/analysis-of-features/ | False |
 | `--model-type` | Тип модели для бэктестинга (encoder/timeseries) | encoder |
 | `--skip-prepare` | Пропустить подготовку данных | False |
 | `--skip-train` | Пропустить обучение | False |

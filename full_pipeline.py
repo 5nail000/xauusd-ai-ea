@@ -271,6 +271,12 @@ def main():
         help='[УСТАРЕЛО] Параметр больше не используется (графики не генерируются в объединенном скрипте)'
     )
     
+    parser.add_argument(
+        '--save-detailed-analyze',
+        action='store_true',
+        help='Сохранить детальные результаты анализа фичей в workspace/analysis-of-features/ (CSV файлы и HTML отчет)'
+    )
+    
     # Параметры обучения
     parser.add_argument(
         '--encoder-only',
@@ -404,6 +410,7 @@ def main():
     if args.remove_correlated or args.analyze_features:
         print(f"  Порог корреляции: {args.correlation_threshold}")
         print(f"  Используется: analyze_and_exclude_features.py")
+        print(f"  Детальные результаты: {'Да' if args.save_detailed_analyze else 'Нет'}")
     print(f"  Размер батча: {args.batch_size}")
     print(f"  Эпох: {args.epochs}")
     print(f"  Early stopping patience: {args.patience}")
@@ -522,6 +529,10 @@ def main():
                         # По умолчанию выполняем полный анализ
                         pass
                     
+                    # Добавляем параметр сохранения детальных результатов
+                    if args.save_detailed_analyze:
+                        analyze_cmd.append('--save-details')
+                    
                     if not run_command(analyze_cmd, "Объединенный анализ и исключение фичей"):
                         print("\n⚠️  Анализ фичей завершился с предупреждениями, но продолжаем...")
                     else:
@@ -532,6 +543,13 @@ def main():
                             print("  Фичи будут автоматически исключены при создании DataLoader'ов")
                         else:
                             print(f"\n⚠️  Файл исключений не создан: {excluded_features_file}")
+                        
+                        # Проверяем детальные результаты
+                        if args.save_detailed_analyze:
+                            analysis_dir = Path('workspace/analysis-of-features')
+                            if analysis_dir.exists():
+                                print(f"\n✓ Детальные результаты сохранены в: {analysis_dir}")
+                                print("  Доступны CSV файлы и HTML отчет")
     else:
         print("\n⏭️  Пропуск этапа подготовки данных")
         if not check_data_files():

@@ -5,7 +5,33 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
 и проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [2025-11-30]
+
+### Добавлено
+- **Опциональное сохранение детальных результатов анализа фичей**
+  - Добавлен параметр `--save-details` в `analyze_and_exclude_features.py`
+  - Добавлен параметр `--save-detailed-analyze` в `full_pipeline.py` (передает `--save-details` в скрипт анализа)
+  - При использовании сохраняются детальные CSV файлы и HTML отчет в `workspace/analysis-of-features/`
+  - Сохраняемые файлы:
+    - `highly_correlated_pairs_threshold_*.csv` - список коррелированных пар
+    - `feature_statistics.csv` - базовая статистика по фичам
+    - `feature_importance.csv` - важность фичей (Mutual Info, F-score, combined_score)
+    - `outliers_analysis.csv` - анализ выбросов (IQR, Z-score)
+    - `feature_by_class_statistics.csv` - статистика распределения фичей по классам
+    - `feature_analysis_report.html` - сводный HTML отчет
+  - Основной файл `workspace/excluded_features.txt` сохраняется всегда (независимо от флага)
+  - Параметр `--save-detailed-analyze` добавлен в `full_pipeline.py` для передачи `--save-details` в скрипт анализа
+  - Обновлена документация с описанием детальных результатов
+
+### Изменено
+- **Объединение функционала анализа фичей в единый скрипт**
+  - Удалены дублирующие скрипты `analyze_feature_correlation.py` и `analyze_features_comprehensive.py`
+  - Весь функционал перенесен в `analyze_and_exclude_features.py`
+  - Функции из старых скриптов встроены напрямую (без зависимостей от удаленных файлов)
+  - Обновлен `full_pipeline.py` для использования нового объединенного скрипта
+  - Обновлена вся документация с актуальными примерами использования
+
+## [2025-11-29]
 
 ### Добавлено
 

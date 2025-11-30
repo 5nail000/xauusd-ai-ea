@@ -130,7 +130,8 @@ class ModelEvaluator:
     
     def plot_confusion_matrix(self, data_loader: DataLoader,
                              class_names: list = None,
-                             save_path: str = None):
+                             save_path: str = None,
+                             show: bool = True):
         """
         Визуализирует confusion matrix
         
@@ -138,6 +139,7 @@ class ModelEvaluator:
             data_loader: DataLoader с данными
             class_names: Названия классов
             save_path: Путь для сохранения графика
+            show: Показывать ли график (по умолчанию: True)
         """
         cm = self.get_confusion_matrix(data_loader, class_names)
         
@@ -166,7 +168,10 @@ class ModelEvaluator:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"Confusion matrix сохранена: {save_path}")
         
-        plt.show()
+        if show:
+            plt.show()
+        else:
+            plt.close()
     
     def get_class_distribution(self, data_loader: DataLoader) -> pd.Series:
         """

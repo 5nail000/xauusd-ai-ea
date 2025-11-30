@@ -25,6 +25,12 @@ def main():
   python prepare_gold_data.py -d 7                # 7 дней
   python prepare_gold_data.py -m 12 --no-ticks    # 12 месяцев без тиков
   python prepare_gold_data.py -m 6 --force       # Принудительная регенерация
+  
+  # Для экспериментов: случайное разделение со стратификацией
+  python prepare_gold_data.py --no-temporal-split
+  
+  # Для реальной торговли: временное разделение с балансировкой классов
+  python prepare_gold_data.py --balance-classes --balance-method undersample
         """
     )
     
@@ -85,6 +91,26 @@ def main():
         help='Режим offline - работа только с кэшированными данными без подключения к MT5'
     )
     
+    parser.add_argument(
+        '--no-temporal-split',
+        action='store_true',
+        help='Использовать случайное разделение со стратификацией вместо временного (для экспериментов)'
+    )
+    
+    parser.add_argument(
+        '--balance-classes',
+        action='store_true',
+        help='Балансировать классы после разделения (только для temporal_split, уменьшает дисбаланс)'
+    )
+    
+    parser.add_argument(
+        '--balance-method',
+        type=str,
+        default='undersample',
+        choices=['undersample', 'oversample'],
+        help='Метод балансировки классов: undersample (уменьшить большие классы) или oversample (увеличить малые) (по умолчанию: undersample)'
+    )
+    
     args = parser.parse_args()
     
     # Определяем период для отображения
@@ -109,6 +135,11 @@ def main():
     print(f"  Принудительная регенерация: {'Да' if args.force else 'Нет'}")
     print(f"  Использование кэша: {'Нет' if args.no_cache else 'Да'}")
     print(f"  Режим offline: {'Да' if args.offline else 'Нет'}")
+    print(f"  Разделение: {'Случайное (со стратификацией)' if args.no_temporal_split else 'Временное'}")
+    if not args.no_temporal_split:
+        print(f"  Балансировка классов: {'Да' if args.balance_classes else 'Нет'}")
+        if args.balance_classes:
+            print(f"  Метод балансировки: {args.balance_method}")
     print("=" * 60)
     
     # Конфигурация
@@ -144,23 +175,54 @@ def main():
     print("Разделение данных на train/validation/test")
     print("=" * 60)
     
+    use_temporal_split = not args.no_temporal_split
+    
     splitter = DataSplitter(
         train_ratio=0.7,
         val_ratio=0.15,
         test_ratio=0.15,
-        temporal_split=True  # Временное разделение (без перемешивания)
+        temporal_split=use_temporal_split
     )
     
     train_df, val_df, test_df = splitter.split(df, target_column='signal_class')
     
+    # Балансировка классов (только для temporal_split)
+    if args.balance_classes and use_temporal_split:
+        print("\n" + "=" * 60)
+        print(f"Балансировка классов (метод: {args.balance_method})")
+        print("=" * 60)
+        
+        from data.target_generator import TargetGenerator
+        target_gen = TargetGenerator()
+        
+        print("\nДо балансировки:")
+        print(f"  Train: {len(train_df)} образцов")
+        print(f"  Val:   {len(val_df)} образцов")
+        print(f"  Test:  {len(test_df)} образцов")
+        
+        train_df = target_gen.balance_classes(train_df, method=args.balance_method)
+        val_df = target_gen.balance_classes(val_df, method=args.balance_method)
+        test_df = target_gen.balance_classes(test_df, method=args.balance_method)
+        
+        print("\nПосле балансировки:")
+        print(f"  Train: {len(train_df)} образцов")
+        print(f"  Val:   {len(val_df)} образцов")
+        print(f"  Test:  {len(test_df)} образцов")
+    elif args.balance_classes and not use_temporal_split:
+        print("\n⚠️  Предупреждение: балансировка классов не нужна при случайном разделении")
+        print("   (стратификация уже обеспечивает одинаковое распределение классов)")
+    
     # Анализ распределения классов
-    print("\nРаспределение классов в train:")
+    print("\n" + "=" * 60)
+    print("Распределение классов")
+    print("=" * 60)
+    print("\nTrain:")
     print(splitter.get_class_distribution(train_df))
     
-    print("\nРаспределение классов в validation:")
+    print("\nValidation:")
     print(splitter.get_class_distribution(val_df))
     
-    print("\nРаспределение классов в test:")
+    print("\nTest:")
     print(splitter.get_class_distribution(test_df))
     
     # Сохраняем разделенные данные

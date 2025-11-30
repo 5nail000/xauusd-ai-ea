@@ -13,7 +13,8 @@ from utils.feature_documentation import export_feature_documentation_for_model
 def train_model_type(model_type: str, training_months: int = 12, batch_size: int = 32, 
                      num_epochs: int = 100, early_stopping_patience: int = 10,
                      use_wandb: bool = False, wandb_project: str = 'xauusd-ai-ea',
-                     use_class_weights: bool = True, class_weight_method: str = 'balanced'):
+                     use_class_weights: bool = True, class_weight_method: str = 'balanced',
+                     dropout: float = 0.1, learning_rate: float = 1e-4, weight_decay: float = 1e-5):
     """Обучает модель указанного типа"""
     print("=" * 80)
     print(f"ОБУЧЕНИЕ {model_type.upper()} МОДЕЛИ НА {training_months} МЕСЯЦАХ")
@@ -91,7 +92,7 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
             d_model=256,
             n_layers=4,
             n_heads=8,
-            dropout=0.1
+            dropout=dropout
         )
     elif model_type == 'timeseries':
         config = get_model_config(
@@ -102,14 +103,14 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
             d_model=256,
             n_layers=6,
             n_heads=8,
-            dropout=0.1,
+            dropout=dropout,
             use_temporal_encoding=True,
             use_patch_embedding=False
         )
     else:
         raise ValueError(f"Неизвестный тип модели: {model_type}")
     
-    config.learning_rate = 1e-4
+    config.learning_rate = learning_rate
     config.batch_size = batch_size
     config.num_epochs = num_epochs
     config.early_stopping_patience = early_stopping_patience
@@ -128,7 +129,7 @@ def train_model_type(model_type: str, training_months: int = 12, batch_size: int
         model=model,
         device=device,
         learning_rate=config.learning_rate,
-        weight_decay=1e-5,
+        weight_decay=weight_decay,
         scheduler_type='cosine',
         model_config=config,
         model_type=model_type,
@@ -280,6 +281,27 @@ def main():
         help='Метод вычисления весов классов (по умолчанию: balanced)'
     )
     
+    parser.add_argument(
+        '--dropout',
+        type=float,
+        default=0.1,
+        help='Dropout rate (по умолчанию: 0.1)'
+    )
+    
+    parser.add_argument(
+        '--learning-rate',
+        type=float,
+        default=1e-4,
+        help='Learning rate (по умолчанию: 1e-4)'
+    )
+    
+    parser.add_argument(
+        '--weight-decay',
+        type=float,
+        default=1e-5,
+        help='Weight decay для регуляризации (по умолчанию: 1e-5)'
+    )
+    
     args = parser.parse_args()
     
     print("\n" + "=" * 80)
@@ -290,6 +312,9 @@ def main():
     print(f"  Размер батча: {args.batch_size}")
     print(f"  Количество эпох: {args.epochs}")
     print(f"  Early stopping patience: {args.patience}")
+    print(f"  Dropout: {args.dropout}")
+    print(f"  Learning Rate: {args.learning_rate}")
+    print(f"  Weight Decay: {args.weight_decay}")
     print(f"  Weights & Biases: {'Включено' if args.use_wandb else 'Выключено'}")
     if args.use_wandb:
         print(f"  W&B проект: {args.wandb_project}")
@@ -325,7 +350,10 @@ def main():
                 use_wandb=args.use_wandb,
                 wandb_project=args.wandb_project,
                 use_class_weights=not args.no_class_weights,
-                class_weight_method=args.class_weight_method
+                class_weight_method=args.class_weight_method,
+                dropout=args.dropout,
+                learning_rate=args.learning_rate,
+                weight_decay=args.weight_decay
             )
             all_results[model_type] = results
         except Exception as e:

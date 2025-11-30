@@ -69,7 +69,9 @@ docs/
 ├── 13_PAPERSPACE_SETUP.md # Обучение на Paperspace
 ├── 14_METRICS_GUIDE.md # Интерактивные метрики
 ├── 15_CLOUD_SERVICES.md # Облачные сервисы
-└── 16_TRAINING_PREPARATION_GUIDE.md # Подготовка к обучению
+├── 16_TRAINING_PREPARATION_GUIDE.md # Подготовка к обучению
+├── 17_FULL_PIPELINE_GUIDE.md # Руководство по full_pipeline.py
+└── 18_WALK_FORWARD_VALIDATION.md # Walk-Forward Validation: теория и практика
 ```
 
 ## Типичный workflow

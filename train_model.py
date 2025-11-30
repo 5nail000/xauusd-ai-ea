@@ -20,10 +20,29 @@ def main():
     parser.add_argument('--wandb-project', type=str, default='xauusd-ai-ea', help='Название проекта в W&B')
     parser.add_argument('--no-class-weights', action='store_true', help='НЕ использовать веса классов (по умолчанию веса включены)')
     parser.add_argument('--class-weight-method', type=str, default='balanced', choices=['balanced', 'inverse', 'sqrt'], help='Метод вычисления весов классов')
+    parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (по умолчанию: 0.1)')
+    parser.add_argument('--learning-rate', type=float, default=1e-4, help='Learning rate (по умолчанию: 1e-4)')
+    parser.add_argument('--weight-decay', type=float, default=1e-5, help='Weight decay для регуляризации (по умолчанию: 1e-5)')
+    parser.add_argument('--model-type', type=str, default='encoder', choices=['encoder', 'timeseries'], help='Тип модели (по умолчанию: encoder)')
+    parser.add_argument('--batch-size', type=int, default=32, help='Размер батча (по умолчанию: 32)')
+    parser.add_argument('--epochs', type=int, default=100, help='Количество эпох (по умолчанию: 100)')
+    parser.add_argument('--patience', type=int, default=10, help='Терпение для early stopping (по умолчанию: 10)')
+    parser.add_argument('--sequence-length', type=int, default=60, help='Длина последовательности (по умолчанию: 60)')
+    parser.add_argument('--training-months', type=int, default=6, help='Количество месяцев данных для метаданных (по умолчанию: 6)')
     args = parser.parse_args()
     
     print("=" * 60)
     print("Обучение Transformer модели")
+    print("=" * 60)
+    print(f"Параметры:")
+    print(f"  Тип модели: {args.model_type}")
+    print(f"  Dropout: {args.dropout}")
+    print(f"  Learning Rate: {args.learning_rate}")
+    print(f"  Weight Decay: {args.weight_decay}")
+    print(f"  Batch Size: {args.batch_size}")
+    print(f"  Эпох: {args.epochs}")
+    print(f"  Patience: {args.patience}")
+    print(f"  Sequence Length: {args.sequence_length}")
     print("=" * 60)
     
     # 1. Загрузка данных
@@ -43,8 +62,8 @@ def main():
         train_df=train_df,
         val_df=val_df,
         test_df=test_df,
-        sequence_length=60,
-        batch_size=32,
+        sequence_length=args.sequence_length,
+        batch_size=args.batch_size,
         target_column='signal_class'
     )
     
@@ -59,12 +78,37 @@ def main():
             method=args.class_weight_method
         )
     
-    # Сохраняем scaler для использования в продакшене с метаданными
+    # 3. Создание модели
+    print("\n3. Создание модели...")
+    model_type = args.model_type
     num_features = train_loader.dataset.sequences.shape[2]
+    
+    config = get_model_config(
+        model_type=model_type,
+        num_features=num_features,
+        num_classes=5,
+        sequence_length=args.sequence_length,
+        d_model=256,
+        n_layers=4 if model_type == 'encoder' else 6,
+        n_heads=8,
+        dropout=args.dropout,
+        learning_rate=args.learning_rate,
+        batch_size=args.batch_size,
+        num_epochs=args.epochs,
+        early_stopping_patience=args.patience,
+        training_data_months=args.training_months
+    )
+    
+    model = create_model(config)
+    print(f"  Тип модели: {model_type}")
+    print(f"  Количество параметров: {sum(p.numel() for p in model.parameters()):,}")
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Сохраняем scaler для использования в продакшене с метаданными
     metadata = {
         'model_type': model_type,
         'num_features': num_features,
-        'sequence_length': 60,
+        'sequence_length': args.sequence_length,
         'target_column': 'signal_class',
         'training_data_months': config.training_data_months,
         'preparation_config': {
@@ -76,38 +120,13 @@ def main():
     print("  Scaler сохранен: workspace/prepared/scalers/feature_scaler.pkl")
     print(f"  Метаданные: {config.training_data_months} месяцев, {num_features} фичей")
     
-    # 3. Создание модели
-    print("\n3. Создание модели...")
-    model_type = 'encoder'  # или 'timeseries' для продвинутой модели
-    
-    config = get_model_config(
-        model_type=model_type,
-        num_features=train_loader.dataset.sequences.shape[2],
-        num_classes=5,
-        sequence_length=60,
-        d_model=256,
-        n_layers=4,
-        n_heads=8,
-        dropout=0.1,
-        learning_rate=1e-4,
-        batch_size=32,
-        num_epochs=100,
-        early_stopping_patience=10,
-        training_data_months=6
-    )
-    
-    model = create_model(config)
-    print(f"  Тип модели: {model_type}")
-    print(f"  Количество параметров: {sum(p.numel() for p in model.parameters()):,}")
-    
     # 4. Обучение
     print("\n4. Обучение модели...")
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     trainer = ModelTrainer(
         model=model,
         device=device,
         learning_rate=config.learning_rate,
-        weight_decay=1e-5,
+        weight_decay=args.weight_decay,
         scheduler_type='cosine',
         model_config=config,
         model_type=model_type,

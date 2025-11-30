@@ -9,6 +9,25 @@
 
 ### Добавлено
 
+- **Параметры командной строки для регуляризации в скриптах обучения**
+  - Добавлены параметры `--dropout`, `--learning-rate` и `--weight-decay` в `train_all_models.py`
+  - Добавлены параметры `--dropout`, `--learning-rate`, `--weight-decay`, `--model-type`, `--batch-size`, `--epochs`, `--patience`, `--sequence-length`, `--training-months` в `train_model.py`
+  - Позволяет настраивать параметры регуляризации без изменения кода
+  - Рекомендуемые значения для борьбы с переобучением: `--dropout 0.2`, `--learning-rate 5e-5`, `--weight-decay 1e-4`
+  - Обновлена документация с примерами использования новых параметров
+
+- **Исправлена ошибка с количеством классов в evaluator**
+  - `ModelEvaluator` теперь автоматически определяет количество классов из данных
+  - Поддержка всех 5 классов: Uncertainty, Breakout Up, Breakout Down, Bounce Up, Bounce Down
+  - Исправлена ошибка `Number of classes, 5, does not match size of target_names, 3`
+  - Методы `print_classification_report`, `plot_confusion_matrix`, `get_class_distribution`, `evaluate_all_splits` обновлены
+
+- **Улучшена быстрая проверка обучения**
+  - `utils/quick_test_training.py` теперь корректно ограничивает данные до указанного количества месяцев
+  - Веса классов вычисляются от полной выборки для сопоставимости с полным обучением
+  - Добавлена фильтрация данных по дате перед обучением
+  - Улучшены информационные сообщения о процессе фильтрации
+
 - **Адаптивные умолчания для Walk-Forward Validation**
   - Параметры Walk-Forward Validation теперь вычисляются автоматически на основе доступного периода данных
   - Функция `calculate_walk_forward_params()` анализирует период данных и вычисляет оптимальные значения для train/val/test/step окон

@@ -105,7 +105,16 @@ class ModelEvaluator:
         metrics = self.evaluate(data_loader)
         
         if class_names is None:
-            class_names = ['Uncertainty', 'Breakout', 'Bounce']
+            # Автоматически определяем количество классов из данных
+            unique_classes = sorted(set(metrics['targets']) | set(metrics['predictions']))
+            class_name_map = {
+                0: 'Uncertainty',
+                1: 'Breakout Up',
+                2: 'Breakout Down',
+                3: 'Bounce Up',
+                4: 'Bounce Down'
+            }
+            class_names = [class_name_map.get(i, f'Class {i}') for i in unique_classes]
         
         report = classification_report(
             metrics['targets'],
@@ -133,7 +142,17 @@ class ModelEvaluator:
         cm = self.get_confusion_matrix(data_loader, class_names)
         
         if class_names is None:
-            class_names = ['Uncertainty', 'Breakout', 'Bounce']
+            # Автоматически определяем количество классов из данных
+            metrics = self.evaluate(data_loader)
+            unique_classes = sorted(set(metrics['targets']) | set(metrics['predictions']))
+            class_name_map = {
+                0: 'Uncertainty',
+                1: 'Breakout Up',
+                2: 'Breakout Down',
+                3: 'Bounce Up',
+                4: 'Bounce Down'
+            }
+            class_names = [class_name_map.get(i, f'Class {i}') for i in unique_classes]
         
         plt.figure(figsize=(10, 8))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
@@ -168,7 +187,18 @@ class ModelEvaluator:
             'True': true_dist,
             'Predicted': pred_dist
         })
-        df.index = ['Uncertainty', 'Breakout', 'Bounce']
+        
+        # Автоматически определяем названия классов
+        unique_classes = sorted(set(metrics['targets']) | set(metrics['predictions']))
+        class_name_map = {
+            0: 'Uncertainty',
+            1: 'Breakout Up',
+            2: 'Breakout Down',
+            3: 'Bounce Up',
+            4: 'Bounce Down'
+        }
+        class_names = [class_name_map.get(i, f'Class {i}') for i in unique_classes]
+        df.index = class_names
         
         return df
     
@@ -203,7 +233,17 @@ class ModelEvaluator:
             print(f"F1-Score:  {metrics['f1_weighted']:.4f}")
             
             print("\nПо классам:")
-            class_names = ['Uncertainty', 'Breakout', 'Bounce']
+            # Автоматически определяем количество классов из данных
+            unique_classes = sorted(set(metrics['targets']) | set(metrics['predictions']))
+            class_name_map = {
+                0: 'Uncertainty',
+                1: 'Breakout Up',
+                2: 'Breakout Down',
+                3: 'Bounce Up',
+                4: 'Bounce Down'
+            }
+            class_names = [class_name_map.get(i, f'Class {i}') for i in unique_classes]
+            
             for i, class_name in enumerate(class_names):
                 if i < len(metrics['precision_per_class']):
                     print(f"  {class_name}:")

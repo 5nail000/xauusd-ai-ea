@@ -90,7 +90,20 @@ python train_all_models.py --months 12 --epochs 50 --batch-size 16
 
 ### 3. Настройка параметров
 
-Можно изменить параметры в `train_model.py`:
+Можно изменить параметры через командную строку или в `train_model.py`:
+
+**Через командную строку:**
+```bash
+python train_model.py \
+  --dropout 0.2 \
+  --learning-rate 5e-5 \
+  --weight-decay 1e-4 \
+  --patience 10 \
+  --epochs 100 \
+  --batch-size 32
+```
+
+**Или изменить параметры в `train_model.py`:**
 
 ```python
 # Тип модели

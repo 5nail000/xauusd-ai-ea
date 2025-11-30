@@ -308,6 +308,71 @@ def analyze_by_class(df: pd.DataFrame, feature_columns: List[str],
     
     return pd.DataFrame(class_stats)
 
+def generate_excluded_features_list(stats_df: pd.DataFrame,
+                                    importance_df: pd.DataFrame,
+                                    outliers_df: pd.DataFrame,
+                                    all_features: List[str]) -> List[str]:
+    """
+    Генерирует список фичей для исключения на основе анализа
+    
+    Критерии исключения:
+    1. Data leakage фичи (future_return_*, max_future_return, direction_*, future_volatility_*)
+    2. Фичи с 100% нулей
+    3. Фичи с >90% пропусков
+    
+    Args:
+        stats_df: DataFrame со статистикой фичей
+        importance_df: DataFrame с важностью фичей
+        outliers_df: DataFrame с анализом выбросов
+        all_features: Список всех фичей
+    
+    Returns:
+        Список фичей для исключения
+    """
+    excluded = []
+    
+    # 1. Data leakage фичи (по паттернам)
+    data_leakage_patterns = [
+        'future_return', 'max_future_return', 
+        'direction_', 'future_volatility_'
+    ]
+    for feature in all_features:
+        for pattern in data_leakage_patterns:
+            if pattern in feature.lower():
+                excluded.append(feature)
+                break
+    
+    # 2. Фичи с 100% нулей (из stats_df)
+    if 'zeros' in stats_df.columns and 'count' in stats_df.columns:
+        for _, row in stats_df.iterrows():
+            feature = row['feature']
+            if feature in excluded:
+                continue
+            
+            count = row.get('count', 0)
+            zeros = row.get('zeros', 0)
+            zeros_pct = row.get('zeros_pct', 0)
+            
+            # Проверяем 100% нулей (либо zeros == count, либо zeros_pct == 100)
+            if count > 0 and (zeros == count or zeros_pct >= 99.99):
+                excluded.append(feature)
+    
+    # 3. Фичи с >90% пропусков
+    if 'missing_pct' in stats_df.columns:
+        for _, row in stats_df.iterrows():
+            feature = row['feature']
+            if feature in excluded:
+                continue
+            
+            missing_pct = row.get('missing_pct', 0)
+            if pd.notna(missing_pct) and missing_pct > 90.0:
+                excluded.append(feature)
+    
+    # Убираем дубликаты и сортируем
+    excluded = sorted(list(set(excluded)))
+    
+    return excluded
+
 def create_html_report(stats_df: pd.DataFrame, importance_df: pd.DataFrame,
                       outliers_df: pd.DataFrame, class_stats_df: pd.DataFrame,
                       output_path: Path):
@@ -601,6 +666,28 @@ def main():
         
         print(f"   ✓ Графики по классам сохранены в {by_class_dir}")
     
+    # 8. Создание списка фичей для исключения
+    print(f"\n8. Создание списка фичей для исключения...")
+    excluded_features = generate_excluded_features_list(
+        stats_df=stats_df,
+        importance_df=importance_df,
+        outliers_df=outliers_df,
+        all_features=feature_columns
+    )
+    
+    if excluded_features:
+        from utils.feature_exclusions import save_excluded_features
+        exclusions_file = output_dir / 'excluded_features.txt'
+        save_excluded_features(excluded_features, exclusions_file)
+        print(f"   ✓ Сохранено {len(excluded_features)} фичей для исключения: {exclusions_file}")
+        print(f"   Топ-10 исключаемых фичей:")
+        for i, feat in enumerate(excluded_features[:10], 1):
+            print(f"     {i}. {feat}")
+        if len(excluded_features) > 10:
+            print(f"     ... и ещё {len(excluded_features) - 10} фичей")
+    else:
+        print(f"   ℹ Не найдено фичей для автоматического исключения")
+    
     print("\n" + "=" * 80)
     print("АНАЛИЗ ЗАВЕРШЕН")
     print("=" * 80)
@@ -610,6 +697,8 @@ def main():
     print(f"  - outliers_analysis.csv - анализ выбросов")
     print(f"  - feature_by_class_statistics.csv - статистика по классам")
     print(f"  - feature_analysis_report.html - сводный HTML отчет")
+    if excluded_features:
+        print(f"  - excluded_features.txt - список фичей для исключения ({len(excluded_features)} фичей)")
     if args.generate_plots:
         print(f"  - plots/ - графики распределений и по классам")
 

@@ -735,6 +735,7 @@ def main():
                 class_weight_method = kwargs.get('class_weight_method', args.class_weight_method)
                 
                 # Создаем DataLoader'ы
+                # exclude_columns будет загружен автоматически из excluded_features.txt внутри create_dataloaders
                 train_loader, val_loader, _, seq_gen = create_dataloaders(
                     train_df=train_df_fold,
                     val_df=val_df_fold,
@@ -801,6 +802,7 @@ def main():
                 batch_size = kwargs.get('batch_size', args.batch_size)
                 
                 # Создаем DataLoader для теста
+                # exclude_columns будет загружен автоматически из excluded_features.txt внутри create_dataloaders
                 _, _, test_loader, _ = create_dataloaders(
                     train_df=test_df_fold.iloc[:100],  # Заглушка
                     val_df=test_df_fold.iloc[:100],    # Заглушка

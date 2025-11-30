@@ -84,6 +84,7 @@ def test_model_training():
         
         # Создание DataLoader'ов
         print("\nСоздание последовательностей...")
+        # exclude_columns будет загружен автоматически из excluded_features.txt внутри create_dataloaders
         train_loader, val_loader, test_loader, seq_gen = create_dataloaders(
             train_df=train_df,
             val_df=val_df,

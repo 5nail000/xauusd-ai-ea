@@ -45,6 +45,7 @@ def train_model_for_fold(train_df: pd.DataFrame,
         Обученная модель
     """
     # Создаем DataLoader'ы
+    # exclude_columns будет загружен автоматически из excluded_features.txt внутри create_dataloaders
     train_loader, val_loader, _, seq_gen = create_dataloaders(
         train_df=train_df,
         val_df=val_df,
@@ -146,6 +147,7 @@ def evaluate_model_for_fold(model: torch.nn.Module,
         Словарь с метриками
     """
     # Создаем DataLoader для теста
+    # exclude_columns будет загружен автоматически из excluded_features.txt внутри create_dataloaders
     _, _, test_loader, _ = create_dataloaders(
         train_df=test_df.iloc[:100],  # Заглушка для train
         val_df=test_df.iloc[:100],    # Заглушка для val

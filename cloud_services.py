@@ -706,38 +706,44 @@ class HuggingFaceDownloader:
             local_path = Path(local_dir)
             local_path.mkdir(parents=True, exist_ok=True)
             
-            # Скачиваем данные
-            print(f"\nСкачивание данных...")
-            downloaded_path = snapshot_download(
-                repo_id=self.repo_id,
-                repo_type="dataset",
-                local_dir=str(local_path),
-                token=self.token
-            )
+            # Скачиваем только папку ticks
+            print(f"\nСкачивание данных (только папка ticks/)...")
+            temp_dir = Path('temp_hf_download')
+            temp_dir.mkdir(exist_ok=True)
             
-            # Если данные скачались в поддиректорию ticks, перемещаем их
-            downloaded_path = Path(downloaded_path)
-            ticks_subdir = downloaded_path / 'ticks'
-            if ticks_subdir.exists() and ticks_subdir.is_dir():
-                # Данные в поддиректории ticks, перемещаем содержимое (не копируем!)
-                print(f"  Перемещение данных из поддиректории...")
-                for item in ticks_subdir.iterdir():
-                    dest = local_path / item.name
-                    if item.is_file():
-                        if dest.exists():
-                            dest.unlink()  # Удаляем существующий файл
-                        shutil.move(str(item), str(dest))  # Перемещаем
-                    else:
-                        if dest.exists():
-                            shutil.rmtree(dest)
-                        shutil.move(str(item), str(dest))  # Перемещаем директорию
+            try:
+                downloaded_path = snapshot_download(
+                    repo_id=self.repo_id,
+                    repo_type="dataset",
+                    local_dir=str(temp_dir),
+                    token=self.token,
+                    allow_patterns=["ticks/**"]  # Скачиваем только папку ticks
+                )
                 
-                # Удаляем пустую поддиректорию ticks после перемещения
-                try:
-                    ticks_subdir.rmdir()  # Удаляем пустую директорию
-                except OSError:
-                    # Если директория не пустая, удаляем рекурсивно
-                    shutil.rmtree(ticks_subdir)
+                # Перемещаем данные из временной директории
+                downloaded_path = Path(downloaded_path)
+                ticks_source = downloaded_path / 'ticks'
+                
+                if ticks_source.exists() and ticks_source.is_dir():
+                    print(f"  Перемещение данных из временной директории...")
+                    for item in ticks_source.iterdir():
+                        dest = local_path / item.name
+                        if item.is_file():
+                            if dest.exists():
+                                dest.unlink()
+                            shutil.move(str(item), str(dest))
+                        else:
+                            if dest.exists():
+                                shutil.rmtree(dest)
+                            shutil.move(str(item), str(dest))
+                else:
+                    print("⚠️  Папка ticks не найдена в репозитории")
+                    print(f"   Проверьте структуру репозитория. Ожидается: ticks/")
+                    return False
+            finally:
+                # Удаляем временную директорию
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir, ignore_errors=True)
             
             print(f"\n✓ Тиковые данные успешно скачаны!")
             print(f"  Локальная директория: {local_dir}")
@@ -767,14 +773,80 @@ class HuggingFaceDownloader:
             local_path = Path(local_dir)
             local_path.mkdir(parents=True, exist_ok=True)
             
-            # Скачиваем данные
-            print(f"\nСкачивание данных...")
-            snapshot_download(
-                repo_id=self.repo_id,
-                repo_type="dataset",
-                local_dir=str(local_path),
-                token=self.token
-            )
+            # Скачиваем только данные для обучения (CSV файлы, scalers, cache)
+            print(f"\nСкачивание данных (только данные для обучения)...")
+            temp_dir = Path('temp_hf_download')
+            temp_dir.mkdir(exist_ok=True)
+            
+            try:
+                downloaded_path = snapshot_download(
+                    repo_id=self.repo_id,
+                    repo_type="dataset",
+                    local_dir=str(temp_dir),
+                    token=self.token,
+                    allow_patterns=[
+                        "workspace/prepared/features/*.csv",
+                        "workspace/prepared/scalers/**",
+                        "workspace/raw_data/cache/**"
+                    ]  # Скачиваем только нужные данные
+                )
+                
+                # Перемещаем данные из временной директории, сохраняя структуру
+                downloaded_path = Path(downloaded_path)
+                workspace_source = downloaded_path / 'workspace'
+                
+                if workspace_source.exists():
+                    print(f"  Перемещение данных из временной директории...")
+                    found_any = False
+                    
+                    # Перемещаем prepared/features/*.csv
+                    features_source = workspace_source / 'prepared' / 'features'
+                    if features_source.exists():
+                        features_dest = local_path / 'prepared' / 'features'
+                        features_dest.mkdir(parents=True, exist_ok=True)
+                        csv_files = list(features_source.glob('*.csv'))
+                        if csv_files:
+                            found_any = True
+                            for csv_file in csv_files:
+                                dest_file = features_dest / csv_file.name
+                                if dest_file.exists():
+                                    dest_file.unlink()
+                                shutil.move(str(csv_file), str(dest_file))
+                    
+                    # Перемещаем prepared/scalers
+                    scalers_source = workspace_source / 'prepared' / 'scalers'
+                    if scalers_source.exists():
+                        found_any = True
+                        scalers_dest = local_path / 'prepared' / 'scalers'
+                        if scalers_dest.exists():
+                            shutil.rmtree(scalers_dest)
+                        scalers_dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(scalers_source), str(scalers_dest))
+                    
+                    # Перемещаем raw_data/cache
+                    cache_source = workspace_source / 'raw_data' / 'cache'
+                    if cache_source.exists():
+                        found_any = True
+                        cache_dest = local_path / 'raw_data' / 'cache'
+                        if cache_dest.exists():
+                            shutil.rmtree(cache_dest)
+                        cache_dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(cache_source), str(cache_dest))
+                    
+                    # Проверяем, что хотя бы что-то было скачано
+                    if not found_any:
+                        print("⚠️  Данные для обучения не найдены в репозитории")
+                        print(f"   Проверьте структуру репозитория.")
+                        print(f"   Ожидается: workspace/prepared/features/*.csv или workspace/prepared/scalers/")
+                        return False
+                else:
+                    print("⚠️  Структура workspace не найдена в репозитории")
+                    print(f"   Проверьте структуру репозитория. Ожидается: workspace/")
+                    return False
+            finally:
+                # Удаляем временную директорию
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir, ignore_errors=True)
             
             print(f"\n✓ Данные для обучения успешно скачаны!")
             print(f"  Локальная директория: {local_dir}")
@@ -804,38 +876,44 @@ class HuggingFaceDownloader:
             local_path = Path(local_dir)
             local_path.mkdir(parents=True, exist_ok=True)
             
-            # Скачиваем данные
-            print(f"\nСкачивание данных...")
-            downloaded_path = snapshot_download(
-                repo_id=self.repo_id,
-                repo_type="dataset",
-                local_dir=str(local_path.parent),
-                token=self.token
-            )
+            # Скачиваем только папку features-analysis
+            print(f"\nСкачивание данных (только папка features-analysis/)...")
+            temp_dir = Path('temp_hf_download')
+            temp_dir.mkdir(exist_ok=True)
             
-            # Если данные скачались в поддиректорию features-analysis, перемещаем их
-            downloaded_path = Path(downloaded_path)
-            analysis_subdir = downloaded_path / 'features-analysis'
-            if analysis_subdir.exists() and analysis_subdir.is_dir():
-                # Данные в поддиректории features-analysis, перемещаем содержимое
-                print(f"  Перемещение данных из поддиректории...")
-                for item in analysis_subdir.iterdir():
-                    dest = local_path / item.name
-                    if item.is_file():
-                        if dest.exists():
-                            dest.unlink()  # Удаляем существующий файл
-                        shutil.move(str(item), str(dest))  # Перемещаем
-                    else:
-                        if dest.exists():
-                            shutil.rmtree(dest)
-                        shutil.move(str(item), str(dest))  # Перемещаем директорию
+            try:
+                downloaded_path = snapshot_download(
+                    repo_id=self.repo_id,
+                    repo_type="dataset",
+                    local_dir=str(temp_dir),
+                    token=self.token,
+                    allow_patterns=["features-analysis/**"]  # Скачиваем только папку features-analysis
+                )
                 
-                # Удаляем пустую поддиректорию features-analysis после перемещения
-                try:
-                    analysis_subdir.rmdir()  # Удаляем пустую директорию
-                except OSError:
-                    # Если директория не пустая, удаляем рекурсивно
-                    shutil.rmtree(analysis_subdir)
+                # Перемещаем данные из временной директории
+                downloaded_path = Path(downloaded_path)
+                analysis_source = downloaded_path / 'features-analysis'
+                
+                if analysis_source.exists() and analysis_source.is_dir():
+                    print(f"  Перемещение данных из временной директории...")
+                    for item in analysis_source.iterdir():
+                        dest = local_path / item.name
+                        if item.is_file():
+                            if dest.exists():
+                                dest.unlink()
+                            shutil.move(str(item), str(dest))
+                        else:
+                            if dest.exists():
+                                shutil.rmtree(dest)
+                            shutil.move(str(item), str(dest))
+                else:
+                    print("⚠️  Папка features-analysis не найдена в репозитории")
+                    print(f"   Проверьте структуру репозитория. Ожидается: features-analysis/")
+                    return False
+            finally:
+                # Удаляем временную директорию
+                if temp_dir.exists():
+                    shutil.rmtree(temp_dir, ignore_errors=True)
             
             print(f"\n✓ Результаты анализа фичей успешно скачаны!")
             print(f"  Локальная директория: {local_dir}")

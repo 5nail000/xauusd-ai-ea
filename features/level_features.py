@@ -30,6 +30,10 @@ def cluster_extrema(extrema_values: np.ndarray, atr: float, min_touches: int = 3
     """
     Группирует близкие экстремумы в кластеры (зоны)
     
+    Улучшенная версия с DBSCAN-подобным алгоритмом:
+    - Находит все взаимно близкие точки, а не только последовательные
+    - Более точная группировка близких экстремумов
+    
     Args:
         extrema_values: Массив значений экстремумов
         atr: ATR для определения "близости"
@@ -41,25 +45,48 @@ def cluster_extrema(extrema_values: np.ndarray, atr: float, min_touches: int = 3
     if len(extrema_values) < min_touches:
         return []
     
-    # Сортируем значения
+    # Сортируем значения для более эффективной обработки
     sorted_values = np.sort(extrema_values)
+    eps = atr * 2.0  # Расстояние для определения близости
     
     clusters = []
-    current_cluster = [sorted_values[0]]
+    visited = set()
     
-    for val in sorted_values[1:]:
-        # Если значение близко к последнему в кластере (в пределах 2*ATR)
-        if val - current_cluster[-1] < 2 * atr:
-            current_cluster.append(val)
-        else:
-            # Сохраняем кластер, если в нем достаточно касаний
-            if len(current_cluster) >= min_touches:
-                clusters.append(current_cluster)
-            current_cluster = [val]
-    
-    # Добавляем последний кластер
-    if len(current_cluster) >= min_touches:
-        clusters.append(current_cluster)
+    # DBSCAN-подобный алгоритм: для каждой точки находим все близкие
+    for i, val in enumerate(sorted_values):
+        if i in visited:
+            continue
+        
+        # Начинаем новый кластер с текущей точки
+        cluster = [val]
+        visited.add(i)
+        
+        # Находим все точки в пределах eps от текущей
+        # Используем бинарный поиск для эффективности
+        for j in range(i + 1, len(sorted_values)):
+            if j in visited:
+                continue
+            
+            other_val = sorted_values[j]
+            # Если точка слишком далеко, остальные тоже будут далеко (отсортированы)
+            if other_val - val > eps:
+                break
+            
+            # Проверяем, близка ли точка к любой точке в кластере
+            # (для более точной кластеризации)
+            is_close = False
+            for cluster_val in cluster:
+                if abs(other_val - cluster_val) <= eps:
+                    is_close = True
+                    break
+            
+            if is_close:
+                cluster.append(other_val)
+                visited.add(j)
+        
+        # Сохраняем кластер, если в нем достаточно точек
+        if len(cluster) >= min_touches:
+            clusters.append(cluster)
     
     return clusters
 
@@ -112,6 +139,96 @@ def add_support_resistance_features(df: pd.DataFrame,
     support_strengths = []
     resistance_strengths = []
     
+    # Вспомогательная функция для выбора лучшего уровня
+    def select_best_level(clusters: List[List[float]], current_price: float, 
+                         min_strength: int = 2) -> Tuple[Optional[List[float]], Optional[float]]:
+        """
+        Выбирает лучший уровень: ближайший к цене среди достаточно сильных
+        
+        Args:
+            clusters: Список кластеров
+            current_price: Текущая цена
+            min_strength: Минимальная сила уровня
+        
+        Returns:
+            Tuple (лучший кластер, центр уровня) или (None, None)
+        """
+        if not clusters:
+            return None, None
+        
+        # Фильтруем кластеры по минимальной силе
+        valid_clusters = [c for c in clusters if len(c) >= min_strength]
+        if not valid_clusters:
+            return None, None
+        
+        # Вычисляем score для каждого кластера: близость важнее, но сила тоже учитывается
+        scored_clusters = []
+        for cluster in valid_clusters:
+            center = np.median(cluster)
+            distance = abs(current_price - center)
+            strength = len(cluster)
+            # Комбинированный score: расстояние / (сила + 1)
+            # Чем ближе и сильнее, тем лучше (меньше score)
+            score = distance / (strength + 1.0)
+            scored_clusters.append((score, cluster, center))
+        
+        # Выбираем лучший (с наименьшим score)
+        scored_clusters.sort(key=lambda x: x[0])
+        return scored_clusters[0][1], scored_clusters[0][2]
+    
+    # Вспомогательная функция для поиска уровня с fallback
+    def find_level_with_fallback(window_extrema: pd.Series, current_price: float,
+                                 avg_atr: float, min_touches: int,
+                                 cluster_atr_multiplier: float) -> Tuple[Optional[List[float]], Optional[float]]:
+        """
+        Находит уровень с использованием fallback-механизма
+        
+        Пробует разные параметры, начиная со строгих и ослабляя требования
+        """
+        if len(window_extrema) < 2:  # Минимум 2 для fallback
+            return None, None
+        
+        # Попытка 1: Строгие параметры (min_touches)
+        clusters = cluster_extrema(
+            window_extrema.values,
+            avg_atr * cluster_atr_multiplier,
+            min_touches
+        )
+        if clusters:
+            cluster, center = select_best_level(clusters, current_price, min_strength=min_touches)
+            if cluster is not None:
+                return cluster, center
+        
+        # Fallback 1: Уменьшаем min_touches до 2
+        if min_touches > 2:
+            clusters = cluster_extrema(
+                window_extrema.values,
+                avg_atr * cluster_atr_multiplier,
+                2
+            )
+            if clusters:
+                cluster, center = select_best_level(clusters, current_price, min_strength=2)
+                if cluster is not None:
+                    return cluster, center
+        
+        # Fallback 2: Увеличиваем tolerance (более широкая кластеризация)
+        clusters = cluster_extrema(
+            window_extrema.values,
+            avg_atr * cluster_atr_multiplier * 1.5,  # Увеличиваем на 50%
+            2
+        )
+        if clusters:
+            cluster, center = select_best_level(clusters, current_price, min_strength=2)
+            if cluster is not None:
+                return cluster, center
+        
+        # Fallback 3: Используем просто ближайший экстремум (если есть)
+        if len(window_extrema) > 0:
+            nearest = window_extrema.iloc[-1]  # Последний экстремум (самый свежий)
+            return [nearest], nearest
+        
+        return None, None
+    
     for i in range(len(df)):
         if i < lookback_window:
             support_levels.append(np.nan)
@@ -127,57 +244,42 @@ def add_support_resistance_features(df: pd.DataFrame,
         window_mins = local_mins.iloc[window_start:i]
         window_maxs = local_maxs.iloc[window_start:i]
         
-        current_atr = atr.iloc[i]
+        # Используем средний ATR за период вместо текущего (более стабильно)
+        atr_window_start = max(0, i - 20)  # Средний ATR за последние 20 периодов
+        avg_atr = atr.iloc[atr_window_start:i+1].mean()
+        current_price = df['close'].iloc[i]
         
         # Обработка поддержек (минимумы)
-        if len(window_mins) >= min_touches:
-            clusters = cluster_extrema(
-                window_mins.values,
-                current_atr * cluster_atr_multiplier,
-                min_touches
-            )
+        cluster, center = find_level_with_fallback(
+            window_mins, current_price, avg_atr, min_touches, cluster_atr_multiplier
+        )
+        
+        if cluster is not None and center is not None:
+            support_center = center
+            support_width = np.std(cluster) if len(cluster) > 1 else avg_atr * 0.5
+            support_strength = len(cluster)
             
-            if clusters:
-                # Берем самый сильный кластер (с наибольшим количеством касаний)
-                strongest_cluster = max(clusters, key=len)
-                support_center = np.median(strongest_cluster)
-                support_width = np.std(strongest_cluster) if len(strongest_cluster) > 1 else current_atr * 0.5
-                support_strength = len(strongest_cluster)
-                
-                support_levels.append(support_center)
-                support_widths.append(support_width)
-                support_strengths.append(support_strength)
-            else:
-                support_levels.append(np.nan)
-                support_widths.append(np.nan)
-                support_strengths.append(0)
+            support_levels.append(support_center)
+            support_widths.append(support_width)
+            support_strengths.append(support_strength)
         else:
             support_levels.append(np.nan)
             support_widths.append(np.nan)
             support_strengths.append(0)
         
         # Обработка сопротивлений (максимумы)
-        if len(window_maxs) >= min_touches:
-            clusters = cluster_extrema(
-                window_maxs.values,
-                current_atr * cluster_atr_multiplier,
-                min_touches
-            )
+        cluster, center = find_level_with_fallback(
+            window_maxs, current_price, avg_atr, min_touches, cluster_atr_multiplier
+        )
+        
+        if cluster is not None and center is not None:
+            resistance_center = center
+            resistance_width = np.std(cluster) if len(cluster) > 1 else avg_atr * 0.5
+            resistance_strength = len(cluster)
             
-            if clusters:
-                # Берем самый сильный кластер
-                strongest_cluster = max(clusters, key=len)
-                resistance_center = np.median(strongest_cluster)
-                resistance_width = np.std(strongest_cluster) if len(strongest_cluster) > 1 else current_atr * 0.5
-                resistance_strength = len(strongest_cluster)
-                
-                resistance_levels.append(resistance_center)
-                resistance_widths.append(resistance_width)
-                resistance_strengths.append(resistance_strength)
-            else:
-                resistance_levels.append(np.nan)
-                resistance_widths.append(np.nan)
-                resistance_strengths.append(0)
+            resistance_levels.append(resistance_center)
+            resistance_widths.append(resistance_width)
+            resistance_strengths.append(resistance_strength)
         else:
             resistance_levels.append(np.nan)
             resistance_widths.append(np.nan)

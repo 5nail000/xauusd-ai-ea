@@ -302,7 +302,8 @@ def create_dataloaders(train_df: pd.DataFrame,
                        sequence_length: int = 60,
                        batch_size: int = 32,
                        target_column: str = 'signal_class',
-                       num_workers: int = 0) -> Tuple[DataLoader, DataLoader, DataLoader, SequenceGenerator]:
+                       num_workers: int = 0,
+                       exclude_columns: Optional[List[str]] = None) -> Tuple[DataLoader, DataLoader, DataLoader, SequenceGenerator]:
     """
     Создает DataLoader'ы для train/val/test
     
@@ -314,14 +315,23 @@ def create_dataloaders(train_df: pd.DataFrame,
         batch_size: Размер батча
         target_column: Название колонки с целевой переменной
         num_workers: Количество воркеров для DataLoader
+        exclude_columns: Список фичей для исключения (если None, загружается из excluded_features.txt)
     
     Returns:
         Tuple (train_loader, val_loader, test_loader, sequence_generator)
     """
+    # Загружаем список исключений из файла, если не указан явно
+    if exclude_columns is None:
+        from utils.feature_exclusions import load_excluded_features
+        exclude_columns = load_excluded_features()
+        if exclude_columns:
+            print(f"  Загружено {len(exclude_columns)} фичей для исключения из excluded_features.txt")
+    
     # Создаем генератор последовательностей
     seq_gen = SequenceGenerator(
         sequence_length=sequence_length,
-        target_column=target_column
+        target_column=target_column,
+        exclude_columns=exclude_columns or []
     )
     
     # Обучаем scaler на train данных

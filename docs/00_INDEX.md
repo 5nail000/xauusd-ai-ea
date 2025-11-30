@@ -24,6 +24,7 @@
 13. **[13_PAPERSPACE_SETUP.md](13_PAPERSPACE_SETUP.md)** - настройка обучения на Paperspace
 14. **[14_METRICS_GUIDE.md](14_METRICS_GUIDE.md)** - интерактивные метрики обучения (TensorBoard и W&B)
 15. **[15_CLOUD_SERVICES.md](15_CLOUD_SERVICES.md)** - полное руководство по облачным сервисам (Paperspace и Hugging Face)
+16. **[16_TRAINING_PREPARATION_GUIDE.md](16_TRAINING_PREPARATION_GUIDE.md)** - подготовка к обучению: анализ фичей и рекомендации
 
 ## Быстрая навигация
 
@@ -46,6 +47,7 @@
 - **Обучение на Paperspace**: [13_PAPERSPACE_SETUP.md](13_PAPERSPACE_SETUP.md)
 - **Интерактивные метрики**: [14_METRICS_GUIDE.md](14_METRICS_GUIDE.md)
 - **Облачные сервисы**: [15_CLOUD_SERVICES.md](15_CLOUD_SERVICES.md)
+- **Подготовка к обучению**: [16_TRAINING_PREPARATION_GUIDE.md](16_TRAINING_PREPARATION_GUIDE.md)
 
 ## Структура документации
 
@@ -66,7 +68,8 @@ docs/
 ├── 12_PERFORMANCE_MONITORING.md # Мониторинг производительности
 ├── 13_PAPERSPACE_SETUP.md # Обучение на Paperspace
 ├── 14_METRICS_GUIDE.md # Интерактивные метрики
-└── 15_CLOUD_SERVICES.md # Облачные сервисы
+├── 15_CLOUD_SERVICES.md # Облачные сервисы
+└── 16_TRAINING_PREPARATION_GUIDE.md # Подготовка к обучению
 ```
 
 ## Типичный workflow

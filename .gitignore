@@ -60,4 +60,5 @@ workspace/
 .DS_Store
 Thumbs.db
 commit_message.txt
+commit-message.txt
 

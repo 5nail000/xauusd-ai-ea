@@ -370,14 +370,13 @@ python full_pipeline.py --skip-prepare
 
 ```bash
 # Запустить анализ фичей
-python full_pipeline.py --months 6 --analyze-features --generate-feature-plots
+python full_pipeline.py --months 6 --analyze-features
 
 # Или отдельно
-python analyze_features_comprehensive.py \
+python analyze_and_exclude_features.py \
   --train workspace/prepared/features/gold_train.csv \
   --val workspace/prepared/features/gold_val.csv \
-  --test workspace/prepared/features/gold_test.csv \
-  --generate-plots
+  --test workspace/prepared/features/gold_test.csv
 ```
 
 **Затем загрузите результаты:**
@@ -496,7 +495,7 @@ python full_pipeline.py --skip-prepare
 
 ```bash
 # 1. Запустить анализ фичей
-python full_pipeline.py --analyze-features --generate-feature-plots
+python full_pipeline.py --analyze-features
 
 # 2. Загрузить результаты на Hugging Face
 python cloud_services.py hf-upload-features \

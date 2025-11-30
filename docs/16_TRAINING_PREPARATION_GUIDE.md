@@ -121,7 +121,7 @@ from sklearn.preprocessing import RobustScaler
 **Проблема:** Все фичи имеют `combined_score = 0`, что означает, что Mutual Information и F-score не работают.
 
 **Возможные причины:**
-- Проблема с вычислением метрик в `analyze_features_comprehensive.py`
+- Проблема с вычислением метрик в `analyze_and_exclude_features.py`
 - Недостаточно данных для вычисления
 - Проблема с типами данных
 

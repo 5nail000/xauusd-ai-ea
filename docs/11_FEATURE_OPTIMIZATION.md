@@ -4,7 +4,141 @@
 
 Руководство по оптимизации фичей для улучшения качества модели: анализ корреляции, удаление дубликатов, мониторинг аномалий и синхронизация фичей между обучением и применением.
 
-## Анализ корреляции фичей
+## Объединенный анализ фичей (РЕКОМЕНДУЕТСЯ)
+
+### Новый скрипт: `analyze_and_exclude_features.py`
+
+**Объединяет анализ корреляции и комплексный анализ фичей** в один процесс, формируя список исключений с группировкой по причинам.
+
+**Преимущества:**
+- ✅ Единый процесс вместо двух отдельных скриптов
+- ✅ Группировка фичей по причинам исключения с комментариями
+- ✅ Автоматическое сохранение в `excluded_features.txt` с комментариями
+- ✅ Убирает дубликаты между группами (фича попадает только в одну группу)
+- ✅ Работает на объединенном датасете (train+val+test) для консистентности
+- ✅ Приоритет причин: data leakage → корреляция → нули → пропуски → низкая важность
+
+**Использование:**
+
+```bash
+# Базовый анализ на объединенном датасете (train+val+test)
+python analyze_and_exclude_features.py
+
+# С настройкой порогов
+python analyze_and_exclude_features.py --correlation-threshold 0.90 --missing-threshold 85
+
+# Без исключения по низкой важности
+python analyze_and_exclude_features.py --no-low-importance
+
+# Только анализ корреляции (быстрее)
+python analyze_and_exclude_features.py --only-correlation
+```
+
+**Что анализируется:**
+
+1. **Data Leakage фичи** - фичи, содержащие информацию о будущем
+   - Паттерны: `future_return_*`, `max_future_return`, `direction_*`, `future_volatility_*`
+   - **Приоритет**: Высший (всегда исключаются первыми)
+
+2. **Высококоррелированные фичи** - корреляция > порога (по умолчанию 0.95)
+   - Анализируется на объединенном датасете (train+val+test)
+   - Удаляется менее приоритетная фича из пары
+   - Базовые OHLC цены защищены и никогда не удаляются
+
+3. **Фичи с 100% нулей** - полностью нулевые фичи
+   - Не несут информации для модели
+   - Определяется по статистике: `zeros == count` или `zeros_pct >= 99.99%`
+
+4. **Фичи с большим процентом пропусков** - >90% пропусков (настраивается)
+   - Слишком много пропущенных данных для использования
+   - Настраивается через `--missing-threshold`
+
+5. **Фичи с низкой важностью** - нижние 5% по combined_score (опционально)
+   - Можно отключить через `--no-low-importance`
+   - Настраивается через `--low-importance-percentile`
+   - **Внимание**: Используйте с осторожностью, может удалить полезные фичи
+
+**Формат выходного файла:**
+
+Список сохраняется в `workspace/excluded_features.txt` с группировкой:
+
+```
+# ============================================================
+# Data Leakage (фичи содержат информацию о будущем)
+# Количество: 10
+# ============================================================
+
+future_return_1
+future_return_5
+max_future_return
+...
+
+# ============================================================
+# Высокая корреляция (>0.95) с другими фичами
+# Количество: 25
+# ============================================================
+
+distance_to_resistance_sigma
+proximity_to_support_atr
+...
+
+# ============================================================
+# 100% нулевых значений
+# Количество: 3
+# ============================================================
+
+is_weekend
+...
+```
+
+**Параметры:**
+
+- `--train`, `--val`, `--test` - пути к CSV файлам (по умолчанию: workspace/prepared/features/gold_*.csv)
+- `--correlation-threshold` - порог корреляции (по умолчанию: 0.95)
+- `--missing-threshold` - порог процента пропусков (по умолчанию: 90.0)
+- `--low-importance-percentile` - процентиль для низкой важности (по умолчанию: 5.0, 0 = отключить)
+- `--no-low-importance` - не исключать фичи по низкой важности
+- `--only-correlation` - выполнить только анализ корреляции (быстрее)
+- `--output` - путь для сохранения списка (по умолчанию: workspace/excluded_features.txt)
+
+**Рекомендуемый workflow:**
+
+```bash
+# 1. Подготовка данных
+python prepare_gold_data.py --months 6 --balance-classes
+
+# 2. Анализ и формирование списка исключений
+python analyze_and_exclude_features.py
+
+# 3. Проверка списка (опционально)
+cat workspace/excluded_features.txt
+
+# 4. Переподготовка данных с учетом исключений (если нужно)
+# Фичи из excluded_features.txt будут автоматически исключены при обучении
+
+# 5. Обучение модели
+python train_all_models.py --encoder-only
+```
+
+**Примечание:** Фичи из `excluded_features.txt` автоматически исключаются при создании DataLoader'ов (см. `models/data_loader.py`).
+
+**Как работает группировка:**
+
+1. Фичи анализируются по всем критериям
+2. Группируются по причинам исключения
+3. Убираются дубликаты (фича попадает только в одну группу по приоритету)
+4. Сохраняются в файл с комментариями-заголовками для каждой группы
+
+**Приоритет причин (от высшего к низшему):**
+1. Data Leakage (критично!)
+2. Высокая корреляция
+3. 100% нулей
+4. Большой процент пропусков
+5. Низкая важность (опционально)
+
+---
+
+## Анализ корреляции фичей (отдельный скрипт)
 
 ### Проблема мультиколлинеарности
 
@@ -16,29 +150,30 @@
 
 ### Автоматический анализ
 
-Используйте скрипт `analyze_feature_correlation.py`:
+**Используйте объединенный скрипт `analyze_and_exclude_features.py`** (рекомендуется):
 
 ```bash
-# Базовый анализ (порог 0.95)
-python analyze_feature_correlation.py
+# Базовый анализ (порог корреляции 0.95)
+python analyze_and_exclude_features.py
 
-# С другим порогом
-python analyze_feature_correlation.py --threshold 0.90
+# С другим порогом корреляции
+python analyze_and_exclude_features.py --correlation-threshold 0.90
 
-# С визуализацией
-python analyze_feature_correlation.py --plot
+# С настройкой других порогов
+python analyze_and_exclude_features.py --correlation-threshold 0.90 --missing-threshold 85
 
-# Автоматическое удаление высококоррелированных фичей
-python analyze_feature_correlation.py --remove
+# Без исключения по низкой важности
+python analyze_and_exclude_features.py --no-low-importance
 ```
 
 ### Параметры скрипта
 
-- `--input` - путь к файлу с данными (по умолчанию: `workspace/prepared/features/gold_train.csv`)
-- `--threshold` - порог корреляции для удаления (по умолчанию: 0.95)
-- `--remove` - автоматически удалить высококоррелированные фичи
-- `--plot` - построить график корреляционной матрицы
-- `--output` - путь для сохранения очищенных данных
+- `--train`, `--val`, `--test` - пути к CSV файлам (по умолчанию: `workspace/prepared/features/gold_*.csv`)
+- `--correlation-threshold` - порог корреляции для исключения (по умолчанию: 0.95)
+- `--missing-threshold` - порог процента пропусков (по умолчанию: 90.0)
+- `--low-importance-percentile` - процентиль для низкой важности (по умолчанию: 5.0, 0 = отключить)
+- `--no-low-importance` - не исключать фичи по низкой важности
+- `--only-correlation` - выполнить только анализ корреляции (быстрее)
 
 ### Стратегия удаления
 
@@ -72,38 +207,39 @@ config = FeatureConfig(
 
 ### Обзор
 
-После удаления коррелированных фичей (или без него) рекомендуется провести комплексный анализ оставшихся фичей. Это поможет понять их характеристики, важность и потенциальные проблемы перед оптимизацией обучения модели.
+**Рекомендуется использовать объединенный скрипт `analyze_and_exclude_features.py`**, который включает:
+- Анализ корреляции
+- Комплексный анализ фичей
+- Автоматическое формирование списка исключений с группировкой по причинам
+
+После подготовки данных рекомендуется провести анализ фичей. Это поможет понять их характеристики, важность и потенциальные проблемы перед оптимизацией обучения модели.
 
 ### Запуск анализа
 
 #### Через full_pipeline.py
 
 ```bash
-# Анализ фичей после удаления корреляций
-python full_pipeline.py --months 3 --remove-correlated --analyze-features
+# Оптимизация фичей (объединенный анализ)
+python full_pipeline.py --months 3 --remove-correlated
 
-# Анализ фичей БЕЗ удаления корреляций
+# С кастомным порогом корреляции
+python full_pipeline.py --months 3 --remove-correlated --correlation-threshold 0.90
+
+# Полный анализ (аналогично --remove-correlated)
 python full_pipeline.py --months 3 --analyze-features
-
-# С генерацией графиков
-python full_pipeline.py --months 3 --analyze-features --generate-feature-plots
 ```
 
 #### Отдельно
 
 ```bash
 # Базовый анализ
-python analyze_features_comprehensive.py \
-  --train workspace/prepared/features/gold_train.csv \
-  --val workspace/prepared/features/gold_val.csv \
-  --test workspace/prepared/features/gold_test.csv
+python analyze_and_exclude_features.py
 
-# С графиками
-python analyze_features_comprehensive.py \
-  --train workspace/prepared/features/gold_train.csv \
-  --val workspace/prepared/features/gold_val.csv \
-  --test workspace/prepared/features/gold_test.csv \
-  --generate-plots
+# С настройкой порогов
+python analyze_and_exclude_features.py --correlation-threshold 0.90 --missing-threshold 85
+
+# Без исключения по низкой важности
+python analyze_and_exclude_features.py --no-low-importance
 ```
 
 ### Структура результатов
@@ -401,11 +537,8 @@ python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 
 # 1. Подготовка данных
 python prepare_gold_data.py --months 12
 
-# 2. Анализ корреляции
-python analyze_feature_correlation.py --plot
-
-# 3. Удаление коррелированных фичей
-python analyze_feature_correlation.py --remove --threshold 0.95
+# 2. Оптимизация фичей (объединенный анализ)
+python analyze_and_exclude_features.py --correlation-threshold 0.95
 
 # 4. Обучение на очищенных данных
 python train_all_models.py

@@ -99,57 +99,48 @@ python prepare_gold_data.py --months 6 --no-ask
 
 ### ОПЦИОНАЛЬНО: Оптимизация фичей
 
-#### Удаление высококоррелированных фичей
+#### Объединенный анализ и исключение фичей
 
-**Важно:** Анализ выполняется на объединенном датасете (train+val+test) для гарантии одинакового набора фичей во всех файлах.
+**Важно:** Используется новый скрипт `analyze_and_exclude_features.py`, который объединяет анализ корреляции и комплексный анализ в один процесс. Анализ выполняется на объединенном датасете (train+val+test) для гарантии одинакового набора фичей во всех файлах.
 
 ```bash
-# С порогом корреляции 0.95 (по умолчанию)
+# Базовый анализ с порогом корреляции 0.95 (по умолчанию)
 python full_pipeline.py --skip-prepare --skip-train --skip-backtest --remove-correlated
 
 # С кастомным порогом корреляции
 python full_pipeline.py --skip-prepare --skip-train --skip-backtest --remove-correlated --correlation-threshold 0.90
 
-# С порогом 0.85 (более агрессивное удаление)
+# С порогом 0.85 (более агрессивное исключение)
 python full_pipeline.py --skip-prepare --skip-train --skip-backtest --remove-correlated --correlation-threshold 0.85
+
+# Полный анализ (включает все типы проверок)
+python full_pipeline.py --skip-prepare --skip-train --skip-backtest --analyze-features
 ```
 
-**Результаты:**
-- Список удаленных фичей: `workspace/prepared/features/features_to_remove_threshold_*.csv`
-- Резервные копии: `*_backup.csv`
-- Обновленные CSV файлы без коррелированных фичей
-
-#### Комплексный анализ фичей
+**Или напрямую через скрипт:**
 
 ```bash
-# Базовый анализ (без графиков)
-python analyze_features_comprehensive.py \
-    --train workspace/prepared/features/gold_train.csv \
-    --val workspace/prepared/features/gold_val.csv \
-    --test workspace/prepared/features/gold_test.csv \
-    --target signal_class \
-    --output-dir workspace/analysis-of-features \
-    --top-features 50
+# Базовый анализ
+python analyze_and_exclude_features.py
 
-# С генерацией графиков
-python analyze_features_comprehensive.py \
-    --train workspace/prepared/features/gold_train.csv \
-    --val workspace/prepared/features/gold_val.csv \
-    --test workspace/prepared/features/gold_test.csv \
-    --target signal_class \
-    --output-dir workspace/analysis-of-features \
-    --top-features 50 \
-    --generate-plots
+# С настройкой порогов
+python analyze_and_exclude_features.py --correlation-threshold 0.90 --missing-threshold 85
+
+# Без исключения по низкой важности
+python analyze_and_exclude_features.py --no-low-importance
 ```
 
 **Результаты:**
-- `workspace/analysis-of-features/feature_statistics.csv` - базовая статистика
-- `workspace/analysis-of-features/feature_importance.csv` - важность фичей
-- `workspace/analysis-of-features/outliers_analysis.csv` - анализ выбросов
-- `workspace/analysis-of-features/feature_by_class_statistics.csv` - статистика по классам
-- `workspace/analysis-of-features/feature_analysis_report.html` - HTML отчет
-- `workspace/excluded_features.txt` - список фичей для исключения (создается автоматически)
-- `workspace/analysis-of-features/plots/` - графики (если `--generate-plots`)
+- `workspace/excluded_features.txt` - список фичей для исключения с группировкой по причинам
+- Фичи автоматически исключаются при создании DataLoader'ов (не удаляются из CSV файлов)
+- Группировка по причинам: Data Leakage → Высокая корреляция → 100% нулей → Большой % пропусков → Низкая важность
+
+**Что анализируется:**
+1. **Data Leakage фичи** - фичи, содержащие информацию о будущем (высший приоритет)
+2. **Высококоррелированные фичи** - корреляция > порога (по умолчанию 0.95)
+3. **Фичи с 100% нулей** - полностью нулевые фичи
+4. **Фичи с большим процентом пропусков** - >90% пропусков (настраивается)
+5. **Фичи с низкой важностью** - нижние 5% по combined_score (опционально)
 
 ---
 
@@ -407,11 +398,11 @@ python full_pipeline.py
 # 6 месяцев, только encoder модель
 python full_pipeline.py --months 6 --encoder-only
 
-# 12 месяцев, обе модели, с удалением коррелированных фичей
+# 12 месяцев, обе модели, с оптимизацией фичей
 python full_pipeline.py --months 12 --remove-correlated
 
-# С анализом фичей
-python full_pipeline.py --months 12 --analyze-features --generate-feature-plots
+# С полным анализом фичей (включает все типы проверок)
+python full_pipeline.py --months 12 --analyze-features
 
 # С кастомными параметрами обучения
 python full_pipeline.py --months 6 --encoder-only --epochs 50 --batch-size 16
@@ -525,18 +516,11 @@ python backtest_strategy.py
 # 1. Подготовка данных
 python prepare_gold_data.py --months 6
 
-# 2. Удаление коррелированных фичей
+# 2. Оптимизация фичей (объединенный анализ)
 python full_pipeline.py --skip-prepare --skip-train --skip-backtest --remove-correlated --correlation-threshold 0.90
 
-# 3. Анализ фичей
-python analyze_features_comprehensive.py \
-    --train workspace/prepared/features/gold_train.csv \
-    --val workspace/prepared/features/gold_val.csv \
-    --test workspace/prepared/features/gold_test.csv \
-    --target signal_class \
-    --output-dir workspace/analysis-of-features \
-    --top-features 50 \
-    --generate-plots
+# Или напрямую через скрипт:
+python analyze_and_exclude_features.py --correlation-threshold 0.90
 
 # 4. Обучение моделей
 python train_all_models.py --months 6 --encoder-only --epochs 100
@@ -683,7 +667,7 @@ python cloud_services.py hf-download-training --repo-id username/dataset-name
 | `--remove-correlated` | Удалить высококоррелированные фичи | False |
 | `--correlation-threshold` | Порог корреляции | 0.95 |
 | `--analyze-features` | Комплексный анализ фичей | False |
-| `--generate-feature-plots` | Генерировать графики при анализе | False |
+| `--generate-feature-plots` | [УСТАРЕЛО] Параметр больше не используется | False |
 | `--model-type` | Тип модели для бэктестинга (encoder/timeseries) | encoder |
 | `--skip-prepare` | Пропустить подготовку данных | False |
 | `--skip-train` | Пропустить обучение | False |

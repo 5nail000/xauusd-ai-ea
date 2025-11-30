@@ -183,10 +183,10 @@ def main():
   # С настройками обучения
   python full_pipeline.py --months 12 --epochs 50 --batch-size 16
   
-  # С удалением высококоррелированных фичей
+  # С оптимизацией фичей (объединенный анализ)
   python full_pipeline.py --months 12 --remove-correlated
   
-  # С удалением коррелированных фичей и кастомным порогом
+  # С оптимизацией фичей и кастомным порогом корреляции
   python full_pipeline.py --months 12 --remove-correlated --correlation-threshold 0.90
   
   # Режим offline (без подключения к MT5, только кэшированные данные)
@@ -249,26 +249,26 @@ def main():
     parser.add_argument(
         '--remove-correlated',
         action='store_true',
-        help='Удалить высококоррелированные фичи после подготовки данных'
+        help='Выполнить объединенный анализ фичей и создать список исключений (использует analyze_and_exclude_features.py)'
     )
     
     parser.add_argument(
         '--correlation-threshold',
         type=float,
         default=0.95,
-        help='Порог корреляции для удаления фичей (по умолчанию: 0.95)'
+        help='Порог корреляции для исключения фичей (по умолчанию: 0.95)'
     )
     
     parser.add_argument(
         '--analyze-features',
         action='store_true',
-        help='Провести комплексный анализ фичей после удаления корреляций'
+        help='Выполнить объединенный анализ фичей (аналогично --remove-correlated, включает все типы анализа)'
     )
     
     parser.add_argument(
         '--generate-feature-plots',
         action='store_true',
-        help='Генерировать графики при анализе фичей (требует --analyze-features)'
+        help='[УСТАРЕЛО] Параметр больше не используется (графики не генерируются в объединенном скрипте)'
     )
     
     # Параметры обучения
@@ -400,15 +400,10 @@ def main():
     print(f"  Символ: {args.symbol}")
     print(f"  Тики: {'Нет' if args.no_ticks else 'Да'}")
     print(f"  Старшие таймфреймы: {'Нет' if args.no_higher_tf else 'Да'}")
-    print(f"  Удаление коррелированных фичей: {'Да' if args.remove_correlated else 'Нет'}")
-    if args.remove_correlated:
+    print(f"  Оптимизация фичей: {'Да' if (args.remove_correlated or args.analyze_features) else 'Нет'}")
+    if args.remove_correlated or args.analyze_features:
         print(f"  Порог корреляции: {args.correlation_threshold}")
-    print(f"  Комплексный анализ фичей: {'Да' if args.analyze_features else 'Нет'}")
-    if args.analyze_features:
-        print(f"  Генерация графиков: {'Да' if args.generate_feature_plots else 'Нет'}")
-    print(f"  Комплексный анализ фичей: {'Да' if args.analyze_features else 'Нет'}")
-    if args.analyze_features:
-        print(f"  Генерация графиков: {'Да' if args.generate_feature_plots else 'Нет'}")
+        print(f"  Используется: analyze_and_exclude_features.py")
     print(f"  Размер батча: {args.batch_size}")
     print(f"  Эпох: {args.epochs}")
     print(f"  Early stopping patience: {args.patience}")
@@ -484,14 +479,14 @@ def main():
                 print("\n❌ Ошибка на этапе подготовки данных. Остановка.")
                 return 1
             
-            # Опциональное удаление высококоррелированных фичей
-            if args.remove_correlated:
+            # Оптимизация фичей: объединенный анализ и исключение
+            if args.remove_correlated or args.analyze_features:
                 print("\n" + "=" * 80)
-                print("ОПТИМИЗАЦИЯ ФИЧЕЙ: Удаление высококоррелированных")
+                print("ОПТИМИЗАЦИЯ ФИЧЕЙ: Объединенный анализ и исключение")
                 print("=" * 80)
-                print(f"Порог корреляции: {args.correlation_threshold}")
-                print("Стратегия: анализ на объединенном датасете (train+val+test)")
-                print("          для гарантии одинакового набора фичей во всех файлах")
+                print("Используется: analyze_and_exclude_features.py")
+                print("Результат: workspace/excluded_features.txt")
+                print("Фичи исключаются автоматически при создании DataLoader'ов")
                 
                 train_path = 'workspace/prepared/features/gold_train.csv'
                 val_path = 'workspace/prepared/features/gold_val.csv'
@@ -509,145 +504,34 @@ def main():
                         print(f"   - {name}: {path}")
                     print("   Пропускаем оптимизацию фичей...")
                 else:
-                    # Шаг 1: Анализ на объединенном датасете
-                    print("\nШАГ 1: Анализ корреляций на объединенном датасете...")
-                    try:
-                        from analyze_feature_correlation import analyze_combined_datasets
-                        import pandas as pd
-                        
-                        features_to_remove = analyze_combined_datasets(
-                            train_path=train_path,
-                            val_path=val_path,
-                            test_path=test_path,
-                            threshold=args.correlation_threshold
-                        )
-                        
-                        if not features_to_remove:
-                            print("\n✓ Высококоррелированных фичей не найдено. Пропускаем удаление.")
-                        else:
-                            # Сохраняем список фичей для удаления
-                            features_dir = Path('workspace/prepared/features')
-                            features_dir.mkdir(parents=True, exist_ok=True)
-                            remove_list_path = features_dir / f'features_to_remove_threshold_{args.correlation_threshold:.2f}.csv'
-                            remove_df = pd.DataFrame({
-                                'Feature': sorted(features_to_remove),
-                                'Reason': 'High correlation with other features (analyzed on combined dataset)'
-                            })
-                            remove_df.to_csv(remove_list_path, index=False)
-                            print(f"\n✓ Список фичей для удаления сохранен: {remove_list_path}")
-                            
-                            # Шаг 2: Применяем удаление ко всем трем файлам
-                            print("\nШАГ 2: Применение удаления ко всем датасетам...")
-                            csv_files = [
-                                (train_path, 'train'),
-                                (val_path, 'val'),
-                                (test_path, 'test')
-                            ]
-                            
-                            for csv_file, file_type in csv_files:
-                                print(f"\nОбработка {file_type} данных...")
-                                
-                                # Загружаем данные
-                                df = pd.read_csv(csv_file, index_col=0, parse_dates=True)
-                                original_cols = len(df.columns)
-                                
-                                # Удаляем фичи
-                                df_cleaned = df.drop(columns=[col for col in features_to_remove if col in df.columns])
-                                removed_count = original_cols - len(df_cleaned.columns)
-                                
-                                # Создаем резервную копию
-                                backup_file = csv_file.replace('.csv', '_backup.csv')
-                                if os.path.exists(csv_file):
-                                    shutil.copy2(csv_file, backup_file)
-                                    print(f"  Резервная копия: {backup_file}")
-                                
-                                # Сохраняем очищенный файл
-                                df_cleaned.to_csv(csv_file)
-                                print(f"  ✓ Удалено {removed_count} фичей")
-                                print(f"  ✓ Осталось {len(df_cleaned.columns)} колонок (было {original_cols})")
-                            
-                            # Шаг 3: Создание документации по фичам
-                            print("\nШАГ 3: Создание документации по фичам...")
-                            try:
-                                # Загружаем train данные для получения списка фичей
-                                train_df = pd.read_csv(train_path, index_col=0, parse_dates=True)
-                                exclude_patterns = ['future_return', 'signal_class', 'signal_class_name', 'max_future_return']
-                                feature_columns = [
-                                    col for col in train_df.columns 
-                                    if not any(pattern in col for pattern in exclude_patterns)
-                                    and pd.api.types.is_numeric_dtype(train_df[col])
-                                ]
-                                
-                                # Создаем документацию
-                                from utils.feature_documentation import create_feature_documentation
-                                
-                                doc_output_path = features_dir / 'features_documentation_after_correlation_removal'
-                                documentation = create_feature_documentation(
-                                    feature_columns=feature_columns,
-                                    scaler_path=None,  # Scaler еще не создан на этом этапе
-                                    output_path=str(doc_output_path)
-                                )
-                                
-                                print(f"  ✓ Документация сохранена:")
-                                print(f"    - {doc_output_path}.json")
-                                print(f"    - {doc_output_path}.md")
-                                
-                            except Exception as e:
-                                print(f"  ⚠️  Ошибка при создании документации: {e}")
-                                import traceback
-                                traceback.print_exc()
-                            
-                            print("\n" + "=" * 80)
-                            print("✓ ОПТИМИЗАЦИЯ ФИЧЕЙ ЗАВЕРШЕНА")
-                            print("=" * 80)
-                            print(f"Удалено фичей: {len(features_to_remove)}")
-                            print(f"Список сохранен: {remove_list_path}")
-                            print(f"Резервные копии: *_backup.csv")
-                            
-                    except Exception as e:
-                        print(f"\n❌ Ошибка при анализе корреляций: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        print("   Продолжаем без оптимизации фичей...")
-            
-            # Комплексный анализ фичей (независимо от удаления корреляций)
-            if args.analyze_features:
-                print("\n" + "=" * 80)
-                print("КОМПЛЕКСНЫЙ АНАЛИЗ ФИЧЕЙ")
-                print("=" * 80)
-                
-                train_path = 'workspace/prepared/features/gold_train.csv'
-                val_path = 'workspace/prepared/features/gold_val.csv'
-                test_path = 'workspace/prepared/features/gold_test.csv'
-                
-                # Проверяем наличие всех файлов
-                missing_files = []
-                for name, path in [('train', train_path), ('val', val_path), ('test', test_path)]:
-                    if not os.path.exists(path):
-                        missing_files.append((name, path))
-                
-                if missing_files:
-                    print(f"\n⚠️  Не найдены файлы для анализа:")
-                    for name, path in missing_files:
-                        print(f"   - {name}: {path}")
-                    print("   Пропускаем анализ фичей...")
-                else:
                     analyze_cmd = [
                         sys.executable,
-                        'analyze_features_comprehensive.py',
+                        'analyze_and_exclude_features.py',
                         '--train', train_path,
                         '--val', val_path,
-                        '--test', test_path,
-                        '--target', 'signal_class',
-                        '--output-dir', 'workspace/analysis-of-features',
-                        '--top-features', '50'
+                        '--test', test_path
                     ]
                     
-                    if args.generate_feature_plots:
-                        analyze_cmd.append('--generate-plots')
+                    # Добавляем параметры, если указаны
+                    if args.remove_correlated:
+                        analyze_cmd.extend(['--correlation-threshold', str(args.correlation_threshold)])
                     
-                    if not run_command(analyze_cmd, "Комплексный анализ фичей"):
+                    # Если указан только --analyze-features без --remove-correlated,
+                    # выполняем полный анализ (включая корреляцию)
+                    if args.analyze_features and not args.remove_correlated:
+                        # По умолчанию выполняем полный анализ
+                        pass
+                    
+                    if not run_command(analyze_cmd, "Объединенный анализ и исключение фичей"):
                         print("\n⚠️  Анализ фичей завершился с предупреждениями, но продолжаем...")
+                    else:
+                        # Проверяем, был ли создан файл исключений
+                        excluded_features_file = Path('workspace/excluded_features.txt')
+                        if excluded_features_file.exists():
+                            print(f"\n✓ Список фичей для исключения создан: {excluded_features_file}")
+                            print("  Фичи будут автоматически исключены при создании DataLoader'ов")
+                        else:
+                            print(f"\n⚠️  Файл исключений не создан: {excluded_features_file}")
     else:
         print("\n⏭️  Пропуск этапа подготовки данных")
         if not check_data_files():

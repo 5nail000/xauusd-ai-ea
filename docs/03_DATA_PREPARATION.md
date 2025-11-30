@@ -392,7 +392,7 @@ config = FeatureConfig(
 Или использовать отдельный скрипт для анализа:
 
 ```bash
-python analyze_feature_correlation.py --remove --threshold 0.95
+python analyze_and_exclude_features.py --correlation-threshold 0.95
 ```
 
 Подробнее см. [11_FEATURE_OPTIMIZATION.md](11_FEATURE_OPTIMIZATION.md)

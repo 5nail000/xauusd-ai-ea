@@ -56,7 +56,7 @@ python backtest_strategy.py
 - **`examples/test_pipeline.py`** - тестовый цикл на небольшом объеме данных
 - **`validate_features.py`** - валидация соответствия фичей между данными и моделью
 - **`export_features_doc.py`** - экспорт документации по фичам для существующей модели
-- **`analyze_feature_correlation.py`** - анализ корреляции фичей
+- **`analyze_and_exclude_features.py`** - объединенный анализ и исключение фичей (корреляция, data leakage, нули, пропуски, важность)
 - **`cloud_services.py`** - утилиты для работы с Paperspace и Hugging Face (загрузка данных, скачивание результатов, работа с тиками и результатами анализа фичей)
 - **`utils/start_tensorboard.py`** - запуск TensorBoard для просмотра метрик обучения
 

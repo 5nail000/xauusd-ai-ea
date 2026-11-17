@@ -5,10 +5,11 @@ import pandas as pd
 import numpy as np
 from typing import List, Optional
 try:
-    import pandas_ta as ta
+    import fin_primitives.pandas  # noqa: F401  registers .fp (pandas-ta method names)
+    HAS_FP = True
 except ImportError:
-    print("Предупреждение: pandas_ta не установлен. Некоторые индикаторы могут быть недоступны.")
-    ta = None
+    print("Предупреждение: fin-primitives не установлен. Некоторые индикаторы могут быть недоступны.")
+    HAS_FP = False
 
 def add_trend_indicators(df: pd.DataFrame, sma_periods: List[int] = None, 
                         ema_periods: List[int] = None, macd_fast: int = 12,
@@ -53,8 +54,8 @@ def add_trend_indicators(df: pd.DataFrame, sma_periods: List[int] = None,
         df[f'price_ema_distance_{period}'] = (df['close'] - df[f'ema_{period}']) / df[f'ema_{period}']
     
     # MACD
-    if ta is not None:
-        macd = ta.macd(df['close'], fast=macd_fast, slow=macd_slow, signal=macd_signal)
+    if HAS_FP:
+        macd = df['close'].fp.macd(fast=macd_fast, slow=macd_slow, signal=macd_signal)
         if macd is not None and not macd.empty:
             df['macd'] = macd[f'MACD_{macd_fast}_{macd_slow}_{macd_signal}']
             df['macd_signal'] = macd[f'MACDs_{macd_fast}_{macd_slow}_{macd_signal}']
@@ -68,8 +69,8 @@ def add_trend_indicators(df: pd.DataFrame, sma_periods: List[int] = None,
         df['macd_histogram'] = df['macd'] - df['macd_signal']
     
     # ADX (Average Directional Index)
-    if ta is not None:
-        adx = ta.adx(df['high'], df['low'], df['close'], length=adx_period)
+    if HAS_FP:
+        adx = df.fp.adx(length=adx_period)
         if adx is not None and not adx.empty:
             df['adx'] = adx[f'ADX_{adx_period}']
             df['adx_pos'] = adx[f'ADX_{adx_period}']
@@ -97,8 +98,8 @@ def add_trend_indicators(df: pd.DataFrame, sma_periods: List[int] = None,
         df['di_minus'] = minus_di
     
     # Parabolic SAR
-    if ta is not None:
-        psar = ta.psar(df['high'], df['low'], df['close'])
+    if HAS_FP:
+        psar = df.fp.psar()
         if psar is not None and not psar.empty:
             psar_cols = [col for col in psar.columns if 'PSAR' in col]
             if psar_cols:
@@ -106,10 +107,10 @@ def add_trend_indicators(df: pd.DataFrame, sma_periods: List[int] = None,
                 df['psar_signal'] = (df['close'] > df['psar']).astype(int)
     
     # Ichimoku Cloud компоненты
-    if ta is not None:
+    if HAS_FP:
         try:
-            ichimoku = ta.ichimoku(df['high'], df['low'], df['close'])
-            # pandas_ta.ichimoku возвращает кортеж (ichimoku_a, ichimoku_b) или DataFrame
+            ichimoku = df.fp.ichimoku()
+            # ichimoku возвращает кортеж (ichimoku_a, ichimoku_b) или DataFrame
             if ichimoku is not None:
                 ichimoku_dfs = []
                 
@@ -179,8 +180,8 @@ def add_oscillators(df: pd.DataFrame, rsi_periods: List[int] = None,
     
     # RSI (Relative Strength Index)
     for period in rsi_periods:
-        if ta is not None:
-            rsi = ta.rsi(df['close'], length=period)
+        if HAS_FP:
+            rsi = df['close'].fp.rsi(length=period)
             if rsi is not None:
                 df[f'rsi_{period}'] = rsi
         else:
@@ -192,9 +193,8 @@ def add_oscillators(df: pd.DataFrame, rsi_periods: List[int] = None,
             df[f'rsi_{period}'] = 100 - (100 / (1 + rs))
     
     # Stochastic Oscillator
-    if ta is not None:
-        stoch = ta.stoch(df['high'], df['low'], df['close'], 
-                        k=stoch_k, d=stoch_d, smooth_k=stoch_smooth)
+    if HAS_FP:
+        stoch = df.fp.stoch(k=stoch_k, d=stoch_d, smooth_k=stoch_smooth)
         if stoch is not None and not stoch.empty:
             stoch_cols = [col for col in stoch.columns if 'STOCH' in col]
             if len(stoch_cols) >= 2:
@@ -208,8 +208,8 @@ def add_oscillators(df: pd.DataFrame, rsi_periods: List[int] = None,
         df['stoch_d'] = df['stoch_k'].rolling(window=stoch_d).mean()
     
     # CCI (Commodity Channel Index)
-    if ta is not None:
-        cci = ta.cci(df['high'], df['low'], df['close'], length=cci_period)
+    if HAS_FP:
+        cci = df.fp.cci(length=cci_period)
         if cci is not None:
             df['cci'] = cci
     else:
@@ -222,8 +222,8 @@ def add_oscillators(df: pd.DataFrame, rsi_periods: List[int] = None,
         df['cci'] = (typical_price - sma_tp) / (0.015 * mad + 1e-10)
     
     # Williams %R
-    if ta is not None:
-        willr = ta.willr(df['high'], df['low'], df['close'], length=williams_period)
+    if HAS_FP:
+        willr = df.fp.willr(length=williams_period)
         if willr is not None:
             df['williams_r'] = willr
     else:

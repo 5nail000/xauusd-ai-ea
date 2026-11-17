@@ -5,9 +5,10 @@ import pandas as pd
 import numpy as np
 from typing import List, Optional
 try:
-    import pandas_ta as ta
+    import fin_primitives.pandas  # noqa: F401  registers .fp (pandas-ta method names)
+    HAS_FP = True
 except ImportError:
-    ta = None
+    HAS_FP = False
 
 def add_volatility_features(df: pd.DataFrame, atr_periods: List[int] = None,
                            bb_period: int = 20, bb_std: float = 2.0,
@@ -45,8 +46,8 @@ def add_volatility_features(df: pd.DataFrame, atr_periods: List[int] = None,
         df[f'tr_to_atr_{period}'] = tr / (df[f'atr_{period}'] + 1e-10)
     
     # Bollinger Bands
-    if ta is not None:
-        bb = ta.bbands(df['close'], length=bb_period, std=bb_std)
+    if HAS_FP:
+        bb = df['close'].fp.bbands(length=bb_period, std=bb_std)
         if bb is not None and not bb.empty:
             bb_cols = [col for col in bb.columns if 'BB' in col]
             if len(bb_cols) >= 3:

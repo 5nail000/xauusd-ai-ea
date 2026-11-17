@@ -12,7 +12,6 @@ wandb>=0.15.0
 huggingface_hub>=0.20.0
 pyarrow>=10.0.0
 networkx>=3.0
-# pandas-ta опциональна - если не установлена, используется ручной расчет индикаторов
-# Для Python 3.11 можно попробовать установить вручную: pip install pandas-ta
-# pandas-ta>=0.3.14b
+# Технические индикаторы (имена и колонки как в pandas-ta)
+fin-primitives[pandas]>=3.6.1
 
